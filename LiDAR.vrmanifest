@@ -1,0 +1,17 @@
+{
+  "source": "builtin",
+  "applications": [
+    {
+      "app_key": "local.vrqr.scanner",
+      "launch_type": "binary",
+      "binary_path_windows": "LiDAR.exe",
+      "is_dashboard_overlay": true,
+      "strings": {
+        "en_us": {
+          "name": "LiDAR",
+          "description": "Scan QR codes and text with a SteamVR gesture."
+        }
+      }
+    }
+  ]
+}

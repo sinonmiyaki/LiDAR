@@ -1,0 +1,13 @@
+{
+  "controller_type": "knuckles",
+  "name": "VR QR Scanner - Valve Index",
+  "description": "Reads finger tracking for the camera frame gesture.",
+  "bindings": {
+    "/actions/camera": {
+      "skeleton": [
+        {"output": "/actions/camera/in/left", "path": "/user/hand/left/input/skeleton/left"},
+        {"output": "/actions/camera/in/right", "path": "/user/hand/right/input/skeleton/right"}
+      ]
+    }
+  }
+}

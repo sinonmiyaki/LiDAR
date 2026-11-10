@@ -1,0 +1,8 @@
+openvr==2.12.1401
+zxing-cpp==3.1.1
+Pillow==12.3.0
+rapidocr==3.9.2
+onnxruntime==1.23.2
+ctranslate2==4.6.3
+sentencepiece==0.2.1
+fasttext-wheel==0.9.2

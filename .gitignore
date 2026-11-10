@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+Output/
+runtime/
+models/
+settings.json
+*.tmp
+*.log
+.env
+auth.json
+Start.cmd
+Demo.cmd
