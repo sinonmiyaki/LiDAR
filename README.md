@@ -2,7 +2,7 @@
   <img src="brand/lidar-readme.png" alt="LiDAR" width="900">
 </p>
 
-<h1 align="center">VR에서 손짓으로 QR을 열고 텍스트를 번역하세요</h1>
+<h1 align="center">VR 환경에서 누구보다 멋지게 QR을 읽고 번역을 받아보세요.</h1>
 
 <p align="center">
   <a href="https://github.com/sinonmiyaki/LiDAR/releases/latest"><img src="https://img.shields.io/github/v/release/sinonmiyaki/LiDAR?label=Release&amp;color=6600CC" alt="최신 릴리스"></a>
