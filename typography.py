@@ -17,7 +17,7 @@ def prepare_desktop():
     user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     register = ctypes.WinDLL("gdi32").AddFontResourceExW
     register.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
-    for face in FONT_DIR.glob("Pretendard-*.otf"):
+    for face in FONT_DIR.glob("Pretendard-*.ttf"):
         register(str(face), 0x10, None)  # Private to this process.
 
 
@@ -34,3 +34,14 @@ def configure_scale(root):
 
 def px(value):
     return round(value * _scale)
+
+
+def set_titlebar_theme(root, dark):
+    user = ctypes.WinDLL("user32")
+    user.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    user.GetAncestor.restype = ctypes.c_void_p
+    hwnd = user.GetAncestor(root.winfo_id(), 2)
+    set_attribute = ctypes.WinDLL("dwmapi").DwmSetWindowAttribute
+    set_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+    value = ctypes.c_int(dark)
+    set_attribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))

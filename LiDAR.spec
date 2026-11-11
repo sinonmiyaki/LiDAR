@@ -14,6 +14,7 @@ datas = [
     (str(root / "fonts"), "fonts"),
     (str(root / "brand" / "lidar-wordmark.png"), "brand"),
     (str(root / "languages.json"), "."),
+    (str(root / "ui-strings.json"), "."),
     (str(root / "translation-model.json"), "."),
     (str(Path(sys.base_prefix) / "LICENSE.txt"), "licenses/python"),
 ]

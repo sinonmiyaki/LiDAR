@@ -1,0 +1,907 @@
+{
+  "대기 중": [
+    "Idle",
+    "待機中",
+    "待机中"
+  ],
+  "꺼짐": [
+    "Off",
+    "オフ",
+    "关闭"
+  ],
+  "준비 중": [
+    "Coming soon",
+    "準備中",
+    "即将推出"
+  ],
+  "워크스페이스": [
+    "Workspace",
+    "ワークスペース",
+    "工作区"
+  ],
+  "대시보드": [
+    "Dashboard",
+    "ダッシュボード",
+    "仪表板"
+  ],
+  "AI 번역": [
+    "AI Translation",
+    "AI翻訳",
+    "AI 翻译"
+  ],
+  "AI 어시스턴트": [
+    "AI Assistant",
+    "AIアシスタント",
+    "AI 助手"
+  ],
+  "설정": [
+    "Settings",
+    "設定",
+    "设置"
+  ],
+  "Language": [
+    "Language",
+    "言語",
+    "语言"
+  ],
+  "앱 표시 언어": [
+    "Display language",
+    "表示言語",
+    "界面语言"
+  ],
+  "앱 메뉴와 안내에 사용할 언어를 선택하세요.": [
+    "Choose the language for LiDAR’s menus and messages.",
+    "LiDARのメニューや案内に使う言語を選択してください。",
+    "选择 LiDAR 菜单和提示所用的语言。"
+  ],
+  "표시 언어를 저장하지 못했습니다.": [
+    "Could not save the display language.",
+    "表示言語を保存できませんでした。",
+    "无法保存界面语言。"
+  ],
+  "손 제스처로 VR 화면의 QR과 텍스트를 읽습니다.": [
+    "Use hand gestures to scan QR codes and text in VR.",
+    "ハンドジェスチャーでVR画面のQRコードや文字を読み取ります。",
+    "通过手势扫描 VR 画面中的二维码和文本。"
+  ],
+  "SteamVR 연결 확인 중": [
+    "Checking SteamVR connection",
+    "SteamVRに接続中",
+    "正在检查 SteamVR 连接"
+  ],
+  "SteamVR 연결됨": [
+    "SteamVR connected",
+    "SteamVRに接続済み",
+    "SteamVR 已连接"
+  ],
+  "SteamVR 연결 안 됨": [
+    "SteamVR disconnected",
+    "SteamVRに未接続",
+    "SteamVR 未连接"
+  ],
+  "아직 스캔 결과가 없습니다.": [
+    "No scans yet.",
+    "スキャン結果はまだありません。",
+    "暂无扫描结果。"
+  ],
+  "아직 읽은 텍스트가 없습니다.": [
+    "No text scanned yet.",
+    "テキストはまだ読み取られていません。",
+    "尚未扫描文本。"
+  ],
+  "번역 결과가 여기에 표시됩니다.": [
+    "Translations appear here.",
+    "翻訳結果はここに表示されます。",
+    "翻译结果将在此显示。"
+  ],
+  "번역 결과": [
+    "Translation",
+    "翻訳結果",
+    "翻译结果"
+  ],
+  "번역 언어 설정": [
+    "Translation language",
+    "翻訳先の言語設定",
+    "翻译语言设置"
+  ],
+  "QR 스캔": [
+    "QR Scan",
+    "QRスキャン",
+    "二维码扫描"
+  ],
+  "스캔 제스처": [
+    "Scan gesture",
+    "スキャンジェスチャー",
+    "扫描手势"
+  ],
+  "L자 프레임": [
+    "L-shaped frame",
+    "L字フレーム",
+    "L 形取景框"
+  ],
+  "양손의 엄지와 검지로 L자를 만듭니다.": [
+    "Make an L with the thumb and index finger of each hand.",
+    "両手の親指と人差し指でL字を作ります。",
+    "用双手的拇指和食指比出 L 形。"
+  ],
+  "손 사이 창에 QR이나 텍스트를 맞춥니다.": [
+    "Center the QR code or text in the frame.",
+    "両手の間の枠にQRコードや文字を合わせます。",
+    "将二维码或文本对准双手之间的取景框。"
+  ],
+  "자세를 풀어 읽습니다.": [
+    "Release the gesture to scan.",
+    "ジェスチャーを解除すると読み取ります。",
+    "松开手势开始扫描。"
+  ],
+  "최근 스캔": [
+    "Recent scan",
+    "最近のスキャン",
+    "最近的扫描"
+  ],
+  "PC 브라우저에서 링크를 열지 못했습니다": [
+    "Could not open the link in your browser",
+    "PCのブラウザーでリンクを開けませんでした",
+    "无法在电脑浏览器中打开链接"
+  ],
+  "인식한 원문": [
+    "Scanned text",
+    "読み取った原文",
+    "扫描原文"
+  ],
+  "변경": [
+    "Change",
+    "変更",
+    "更改"
+  ],
+  "번역 언어": [
+    "Translation language",
+    "翻訳先の言語",
+    "翻译目标语言"
+  ],
+  "모델 선택": [
+    "Choose model",
+    "モデルを選択",
+    "选择模型"
+  ],
+  "번역 모델 설정": [
+    "Translation model",
+    "翻訳モデル設定",
+    "翻译模型设置"
+  ],
+  "SteamVR 기동 시 자동 실행": [
+    "Launch with SteamVR",
+    "SteamVRと同時に起動",
+    "随 SteamVR 启动"
+  ],
+  "다크 모드": [
+    "Dark mode",
+    "ダークモード",
+    "深色模式"
+  ],
+  "다크 모드 설정을 저장하지 못했습니다.": [
+    "Could not save dark mode.",
+    "ダークモードの設定を保存できませんでした。",
+    "无法保存深色模式设置。"
+  ],
+  "번역 모델을 정해주세요": [
+    "Choose a translation model",
+    "翻訳モデルを選択してください",
+    "请选择翻译模型"
+  ],
+  "기능 설정을 저장하지 못했습니다.": [
+    "Could not save feature settings.",
+    "機能設定を保存できませんでした。",
+    "无法保存功能设置。"
+  ],
+  "닫기": [
+    "Close",
+    "閉じる",
+    "关闭"
+  ],
+  "ChatGPT 계정으로 연결해 OCR 텍스트를 번역합니다.": [
+    "Connect ChatGPT to translate scanned text.",
+    "ChatGPTアカウントで接続し、読み取ったテキストを翻訳します。",
+    "连接 ChatGPT 账号以翻译扫描文本。"
+  ],
+  "DeepL API 키로 연결해 온라인으로 번역합니다.": [
+    "Translate online with a DeepL API key.",
+    "DeepLのAPIキーでオンライン翻訳します。",
+    "使用 DeepL API 密钥进行在线翻译。"
+  ],
+  "모델을 다운로드한 뒤 오프라인으로 번역합니다.": [
+    "Download the model for offline translation.",
+    "モデルをダウンロードしてオフラインで翻訳します。",
+    "下载模型后即可离线翻译。"
+  ],
+  "VR 성능 하락이 있을 수 있음": [
+    "May reduce VR performance",
+    "VRの動作が重くなる場合があります",
+    "可能降低 VR 性能"
+  ],
+  "ChatGPT에 로그인하면 OCR 텍스트를 GPT-6 Luna로 처리합니다.": [
+    "Sign in to ChatGPT to translate scanned text with GPT-6 Luna.",
+    "ChatGPTにログインすると、GPT-6 Lunaで読み取ったテキストを翻訳します。",
+    "登录 ChatGPT 后，使用 GPT-6 Luna 翻译扫描文本。"
+  ],
+  "번역 모델 설정을 저장하지 못했습니다.": [
+    "Could not save the translation model.",
+    "翻訳モデルの設定を保存できませんでした。",
+    "无法保存翻译模型设置。"
+  ],
+  "DeepL에서 발급받은 API 키를 입력하세요. Developer 키는 개인정보가 없는 텍스트에만 사용하세요.": [
+    "Enter a DeepL API key. Use Developer keys only for text without personal data.",
+    "DeepLで発行したAPIキーを入力してください。Developerキーは個人情報を含まないテキストにのみ使用してください。",
+    "请输入 DeepL 提供的 API 密钥。Developer 密钥仅可用于不含个人信息的文本。"
+  ],
+  "DeepL API 키": [
+    "DeepL API key",
+    "DeepL APIキー",
+    "DeepL API 密钥"
+  ],
+  "API 키 저장됨": [
+    "API key saved",
+    "APIキーを保存済み",
+    "API 密钥已保存"
+  ],
+  "API 키를 확인하세요.": [
+    "Check the API key.",
+    "APIキーを確認してください。",
+    "请检查 API 密钥。"
+  ],
+  "API 키를 저장하지 못했습니다.": [
+    "Could not save the API key.",
+    "APIキーを保存できませんでした。",
+    "无法保存 API 密钥。"
+  ],
+  "API 키 발급": [
+    "Get API key",
+    "APIキーを取得",
+    "获取 API 密钥"
+  ],
+  "저장": [
+    "Save",
+    "保存",
+    "保存"
+  ],
+  "키 지우기": [
+    "Remove key",
+    "キーを削除",
+    "移除密钥"
+  ],
+  "모델을 한 번 다운로드하면 로그인 없이 오프라인으로 번역합니다.": [
+    "Download the model once to translate offline without an account.",
+    "モデルを一度ダウンロードすれば、ログイン不要でオフライン翻訳できます。",
+    "下载一次模型即可离线翻译，无需登录。"
+  ],
+  "모델 다운로드 · 약 473 MiB": [
+    "Download model · ~473 MiB",
+    "モデルをダウンロード · 約473 MiB",
+    "下载模型 · 约 473 MiB"
+  ],
+  "다운로드 완료 · 오프라인 번역 가능": [
+    "Downloaded · Offline translation ready",
+    "ダウンロード済み · オフライン翻訳可能",
+    "下载完成 · 可离线翻译"
+  ],
+  "다운로드 준비 중": [
+    "Preparing download",
+    "ダウンロードを準備中",
+    "正在准备下载"
+  ],
+  "상태 확인": [
+    "Check status",
+    "状態を確認",
+    "检查状态"
+  ],
+  "자동 실행 켜짐": [
+    "Auto-launch on",
+    "自動起動オン",
+    "已启用自动启动"
+  ],
+  "자동 실행 꺼짐": [
+    "Auto-launch off",
+    "自動起動オフ",
+    "已关闭自动启动"
+  ],
+  "자동 실행 설정을 저장하지 못했습니다.": [
+    "Could not save the auto-launch setting.",
+    "自動起動の設定を保存できませんでした。",
+    "无法保存自动启动设置。"
+  ],
+  "SteamVR가 실행되면 적용됩니다.": [
+    "Applies when SteamVR is running.",
+    "SteamVRの起動時に適用されます。",
+    "SteamVR 运行时生效。"
+  ],
+  "설정을 저장하지 못했습니다. 다시 시도하세요.": [
+    "Could not save your choice. Try again.",
+    "設定を保存できませんでした。もう一度お試しください。",
+    "无法保存设置，请重试。"
+  ],
+  "SteamVR와 함께 실행할까요?": [
+    "Launch LiDAR with SteamVR?",
+    "SteamVRと同時に起動しますか？",
+    "随 SteamVR 一起启动 LiDAR？"
+  ],
+  "SteamVR가 시작되면 LiDAR도 실행합니다. 나중에 설정에서 바꿀 수 있습니다.": [
+    "LiDAR can start when SteamVR opens. You can change this in Settings.",
+    "SteamVRの起動時にLiDARも起動します。後から設定で変更できます。",
+    "SteamVR 启动时也启动 LiDAR。之后可在设置中更改。"
+  ],
+  "사용 안 함": [
+    "Keep off",
+    "有効にしない",
+    "不启用"
+  ],
+  "같이 실행": [
+    "Enable auto-launch",
+    "同時起動を有効化",
+    "启用自动启动"
+  ],
+  "새 업데이트가 있습니다": [
+    "Update available",
+    "アップデートがあります",
+    "发现新版本"
+  ],
+  "건너뛸 버전을 저장하지 못했습니다.": [
+    "Could not save the skipped version.",
+    "スキップするバージョンを保存できませんでした。",
+    "无法保存要跳过的版本。"
+  ],
+  "설치 파일 다운로드 중": [
+    "Downloading installer",
+    "インストーラーをダウンロード中",
+    "正在下载安装程序"
+  ],
+  "지금 업데이트": [
+    "Update now",
+    "今すぐ更新",
+    "立即更新"
+  ],
+  "이번 버전 건너뛰기": [
+    "Skip this version",
+    "このバージョンをスキップ",
+    "跳过此版本"
+  ],
+  "나중에": [
+    "Later",
+    "後で",
+    "稍后"
+  ],
+  "업데이트를 다운로드하지 못했습니다. 다시 시도하세요.": [
+    "Could not download the update. Try again.",
+    "アップデートをダウンロードできませんでした。もう一度お試しください。",
+    "无法下载更新，请重试。"
+  ],
+  "LiDAR 업데이트": [
+    "LiDAR update",
+    "LiDARのアップデート",
+    "LiDAR 更新"
+  ],
+  "업데이트 설치 프로그램을 열지 못했습니다.": [
+    "Could not open the update installer.",
+    "アップデートのインストーラーを開けませんでした。",
+    "无法打开更新安装程序。"
+  ],
+  "Codex 연결을 확인할 수 없습니다.": [
+    "Could not verify the Codex connection.",
+    "Codexとの接続を確認できませんでした。",
+    "无法验证 Codex 连接。"
+  ],
+  "연결 확인 중": [
+    "Checking connection",
+    "接続を確認中",
+    "正在检查连接"
+  ],
+  "로그인 취소 중": [
+    "Canceling sign-in",
+    "ログインをキャンセル中",
+    "正在取消登录"
+  ],
+  "연결 해제 중": [
+    "Disconnecting",
+    "接続を解除中",
+    "正在断开连接"
+  ],
+  "브라우저에서 ChatGPT 로그인을 완료하세요.": [
+    "Finish signing in to ChatGPT in your browser.",
+    "ブラウザーでChatGPTへのログインを完了してください。",
+    "请在浏览器中完成 ChatGPT 登录。"
+  ],
+  "로그인 취소": [
+    "Cancel sign-in",
+    "ログインをキャンセル",
+    "取消登录"
+  ],
+  "연결 해제": [
+    "Disconnect",
+    "接続を解除",
+    "断开连接"
+  ],
+  "ChatGPT 연결": [
+    "Connect ChatGPT",
+    "ChatGPTに接続",
+    "连接 ChatGPT"
+  ],
+  "결과 언어": [
+    "Target language",
+    "翻訳先の言語",
+    "目标语言"
+  ],
+  "번역 결과를 표시할 언어를 선택하세요.": [
+    "Choose a language for translation results.",
+    "翻訳結果を表示する言語を選択してください。",
+    "选择翻译结果的显示语言。"
+  ],
+  "설정을 저장하지 못했습니다. LiDAR 폴더에 쓰기 권한이 필요합니다.": [
+    "Could not save. LiDAR needs write access to its folder.",
+    "保存できませんでした。LiDARフォルダーへの書き込み権限が必要です。",
+    "无法保存设置。LiDAR 文件夹需要写入权限。"
+  ],
+  "적용": [
+    "Apply",
+    "適用",
+    "应用"
+  ],
+  "취소": [
+    "Cancel",
+    "キャンセル",
+    "取消"
+  ],
+  "설정에서 ChatGPT를 연결하세요": [
+    "Connect ChatGPT in Settings",
+    "設定からChatGPTに接続してください",
+    "请在设置中连接 ChatGPT"
+  ],
+  "Luna에 연결하지 못했습니다": [
+    "Could not connect to Luna",
+    "Lunaに接続できませんでした",
+    "无法连接 Luna"
+  ],
+  "설정에 DeepL API 키를 입력하세요": [
+    "Enter a DeepL API key in Settings",
+    "設定でDeepL APIキーを入力してください",
+    "请在设置中输入 DeepL API 密钥"
+  ],
+  "{language} 결과": [
+    "{language} translation",
+    "{language}の翻訳結果",
+    "{language}翻译结果"
+  ],
+  "인식 결과": [
+    "Scan result",
+    "読み取り結果",
+    "扫描结果"
+  ],
+  "연결됨 · GPT-6 Luna · 추론 없음 (none)": [
+    "Connected · GPT-6 Luna · Reasoning off (none)",
+    "接続済み · GPT-6 Luna · 推論なし (none)",
+    "已连接 · GPT-6 Luna · 无推理 (none)"
+  ],
+  "연결됨 · GPT-6 Luna의 빠른 추론 설정을 확인할 수 없습니다.": [
+    "Connected · Luna’s fast reasoning settings are unavailable.",
+    "接続済み · Lunaの高速推論設定を確認できません。",
+    "已连接 · 无法确认 Luna 的快速推理设置。"
+  ],
+  "ChatGPT 연결 안 됨": [
+    "ChatGPT disconnected",
+    "ChatGPTに未接続",
+    "ChatGPT 未连接"
+  ],
+  "연결됨 · GPT-6 Luna · 추론 낮음 (low)": [
+    "Connected · GPT-6 Luna · Low reasoning",
+    "接続済み · GPT-6 Luna · 推論レベル低 (low)",
+    "已连接 · GPT-6 Luna · 低推理 (low)"
+  ],
+  "다운로드 중 · {value}%": [
+    "Downloading · {value}%",
+    "ダウンロード中 · {value}%",
+    "下载中 · {value}%"
+  ],
+  "다운로드에 실패했습니다. 다시 시도하세요.": [
+    "Download failed. Try again.",
+    "ダウンロードに失敗しました。もう一度お試しください。",
+    "下载失败，请重试。"
+  ],
+  "설치 파일 다운로드 중 · {value}%": [
+    "Downloading installer · {value}%",
+    "インストーラーをダウンロード中 · {value}%",
+    "正在下载安装程序 · {value}%"
+  ],
+  "스캔 대기": [
+    "Ready to scan",
+    "スキャン待機中",
+    "准备扫描"
+  ],
+  "제스처를 기다리고 있습니다": [
+    "Waiting for your gesture",
+    "ジェスチャーを待っています",
+    "正在等待手势"
+  ],
+  "조준 중": [
+    "Aiming",
+    "照準中",
+    "正在取景"
+  ],
+  "인식 중": [
+    "Scanning",
+    "読み取り中",
+    "正在识别"
+  ],
+  "LiDAR 열기": [
+    "Open LiDAR",
+    "LiDARを開く",
+    "打开 LiDAR"
+  ],
+  "종료": [
+    "Quit",
+    "終了",
+    "退出"
+  ],
+  "설치된 LiDAR에서 자동 실행을 설정할 수 있습니다.": [
+    "Install LiDAR to configure auto-launch.",
+    "自動起動を設定するにはLiDARをインストールしてください。",
+    "请安装 LiDAR 后再设置自动启动。"
+  ],
+  "SteamVR에서 등록을 확인하는 중": [
+    "Checking SteamVR registration",
+    "SteamVRへの登録を確認中",
+    "正在检查 SteamVR 注册状态"
+  ],
+  "SteamVR 화면이 아직 갱신되지 않았습니다": [
+    "The SteamVR view has not updated yet",
+    "SteamVRの画面がまだ更新されていません",
+    "SteamVR 画面尚未更新"
+  ],
+  "스캔 창을 시야 안으로 옮기세요": [
+    "Move the scan frame into view",
+    "スキャン枠を視野内に移動してください",
+    "请将取景框移入视野"
+  ],
+  "읽을 QR 하나를 창 가운데에 맞추세요": [
+    "Center a single QR code in the frame",
+    "QRコードを1つだけ枠の中央に合わせてください",
+    "请将一个二维码对准取景框中央"
+  ],
+  "QR 이미지 영역이 비어 있습니다": [
+    "The QR image area is empty",
+    "QRコードの画像領域が空です",
+    "二维码图像区域为空"
+  ],
+  "QR을 읽었습니다 · 웹 링크가 포함되어 있지 않습니다": [
+    "QR code scanned · No web link",
+    "QRコードを読み取りました · ウェブリンクなし",
+    "已扫描二维码 · 无网页链接"
+  ],
+  "PC 브라우저에서 열었습니다 · {url}": [
+    "Opened in your PC browser · {url}",
+    "PCのブラウザーで開きました · {url}",
+    "已在电脑浏览器中打开 · {url}"
+  ],
+  "PC 브라우저에서 열었습니다": [
+    "Opened in your PC browser",
+    "PCのブラウザーで開きました",
+    "已在电脑浏览器中打开"
+  ],
+  "대시보드에서 스캔 기능을 켜세요": [
+    "Enable scanning on the dashboard",
+    "ダッシュボードでスキャンを有効にしてください",
+    "请在仪表板中启用扫描"
+  ],
+  "QR은 읽었으나 브라우저를 열지 못했습니다 · {error}": [
+    "QR code scanned, but the browser could not open · {error}",
+    "QRコードを読み取りましたがブラウザーを開けませんでした · {error}",
+    "已扫描二维码，但无法打开浏览器 · {error}"
+  ],
+  "텍스트 QR": [
+    "Text QR code",
+    "テキストQRコード",
+    "文本二维码"
+  ],
+  "창 안에서 QR이나 읽을 수 있는 텍스트를 찾지 못했습니다": [
+    "No QR code or readable text found in the frame",
+    "枠内にQRコードや読み取れる文字が見つかりませんでした",
+    "取景框内未找到二维码或可读文本"
+  ],
+  "텍스트": [
+    "Text",
+    "テキスト",
+    "文本"
+  ],
+  "{kind} 완료": [
+    "{kind} complete",
+    "{kind}完了",
+    "{kind}完成"
+  ],
+  "텍스트 처리 오류 · {error}": [
+    "Text processing error · {error}",
+    "テキスト処理エラー · {error}",
+    "文本处理错误 · {error}"
+  ],
+  "QR 인식 · 캡처 표시 중": [
+    "QR code found · Showing capture",
+    "QRコードを検出 · キャプチャを表示中",
+    "已识别二维码 · 正在显示截图"
+  ],
+  "텍스트 인식 및 번역 중": [
+    "Scanning and translating text",
+    "テキストを読み取り、翻訳中",
+    "正在识别并翻译文本"
+  ],
+  "손 사이 창에서 QR이나 텍스트를 읽지 못했습니다": [
+    "Could not scan a QR code or text in the frame",
+    "両手の間の枠でQRコードや文字を読み取れませんでした",
+    "无法读取双手之间取景框内的二维码或文本"
+  ],
+  "손 사이 창에서 QR을 읽지 못했습니다": [
+    "Could not scan a QR code in the frame",
+    "両手の間の枠でQRコードを読み取れませんでした",
+    "无法读取双手之间取景框内的二维码"
+  ],
+  "스캔 오류 · {error}": [
+    "Scan error · {error}",
+    "スキャンエラー · {error}",
+    "扫描错误 · {error}"
+  ],
+  "조준 중 · 손 사이 창에 QR이나 텍스트를 넣고 자세를 푸세요": [
+    "Aiming · Center the QR code or text and release the gesture",
+    "照準中 · QRコードや文字を枠に合わせてジェスチャーを解除してください",
+    "正在取景 · 对准二维码或文本后松开手势"
+  ],
+  "SteamVR 대시보드를 닫으면 제스처를 감지합니다": [
+    "Close the SteamVR dashboard to detect gestures",
+    "SteamVRのダッシュボードを閉じるとジェスチャーを検出します",
+    "关闭 SteamVR 仪表板后即可检测手势"
+  ],
+  "양쪽 컨트롤러의 위치와 손가락 신호를 기다리는 중": [
+    "Waiting for tracking data from both controllers",
+    "両方のコントローラーの位置と指の入力を待っています",
+    "正在等待两个控制器的位置和手指数据"
+  ],
+  "제스처 대기   왼손 {left}   오른손 {right}   위치 {position}": [
+    "Gesture ready   Left {left}   Right {right}   Position {position}",
+    "ジェスチャー待機   左手 {left}   右手 {right}   位置 {position}",
+    "等待手势   左手 {left}   右手 {right}   位置 {position}"
+  ],
+  "헤드셋을 연결하고 SteamVR을 실행하세요.": [
+    "Connect your headset and start SteamVR.",
+    "ヘッドセットを接続してSteamVRを起動してください。",
+    "请连接头显并启动 SteamVR。"
+  ],
+  "설정에서 Local 번역 모델을 다운로드하세요": [
+    "Download the local model in Settings",
+    "設定からローカル翻訳モデルをダウンロードしてください",
+    "请在设置中下载本地翻译模型"
+  ],
+  "Local 모델이 원문 언어를 확인하지 못했습니다": [
+    "The local model could not identify the source language",
+    "ローカルモデルで原文の言語を判別できませんでした",
+    "本地模型无法识别原文语言"
+  ],
+  "Local 번역 모델을 열지 못했습니다": [
+    "Could not load the local model",
+    "ローカル翻訳モデルを読み込めませんでした",
+    "无法加载本地翻译模型"
+  ],
+  "자동 감지": [
+    "Auto-detected",
+    "自動検出",
+    "自动检测"
+  ],
+  "텍스트 인식": [
+    "Text scan",
+    "テキスト認識",
+    "文本识别"
+  ],
+  "번역 사용 한도에 도달했습니다": [
+    "Translation quota reached",
+    "翻訳の利用上限に達しました",
+    "已达到翻译配额上限"
+  ],
+  "DeepL API 키를 확인하세요": [
+    "Check your DeepL API key",
+    "DeepL APIキーを確認してください",
+    "请检查 DeepL API 密钥"
+  ],
+  "번역 요청이 많습니다. 잠시 후 다시 시도하세요": [
+    "Too many requests. Try again shortly.",
+    "リクエストが集中しています。しばらくしてからお試しください。",
+    "请求过多，请稍后重试"
+  ],
+  "번역 서비스가 요청한 언어를 처리하지 못했습니다": [
+    "The translation service could not process the requested language",
+    "翻訳サービスが指定された言語を処理できませんでした",
+    "翻译服务无法处理所选语言"
+  ],
+  "번역 서비스에 연결하지 못했습니다": [
+    "Could not connect to the translation service",
+    "翻訳サービスに接続できませんでした",
+    "无法连接翻译服务"
+  ],
+  "Codex와 통신할 수 없습니다.": [
+    "Could not communicate with Codex.",
+    "Codexと通信できませんでした。",
+    "无法与 Codex 通信。"
+  ],
+  "Codex 응답 시간이 초과되었습니다.": [
+    "Codex timed out.",
+    "Codexの応答がタイムアウトしました。",
+    "Codex 响应超时。"
+  ],
+  "Codex 연결이 종료되었습니다.": [
+    "The Codex connection closed.",
+    "Codexとの接続が終了しました。",
+    "Codex 连接已关闭。"
+  ],
+  "Codex 요청을 취소했습니다.": [
+    "Codex request canceled.",
+    "Codexへのリクエストをキャンセルしました。",
+    "已取消 Codex 请求。"
+  ],
+  "Codex에서 추론 없음 설정을 거절했습니다.": [
+    "Codex rejected reasoning level none.",
+    "Codexが推論なしの設定を拒否しました。",
+    "Codex 拒绝了无推理设置。"
+  ],
+  "Codex에서 {method} 요청을 처리하지 못했습니다.": [
+    "Codex could not process {method}.",
+    "Codexが{method}を処理できませんでした。",
+    "Codex 无法处理 {method} 请求。"
+  ],
+  "Codex CLI를 설치하거나 업데이트하세요.": [
+    "Install or update the Codex CLI.",
+    "Codex CLIをインストールまたは更新してください。",
+    "请安装或更新 Codex CLI。"
+  ],
+  "Codex를 실행할 수 없습니다.": [
+    "Could not start Codex.",
+    "Codexを起動できませんでした。",
+    "无法启动 Codex。"
+  ],
+  "ChatGPT 로그인을 취소했습니다.": [
+    "ChatGPT sign-in canceled.",
+    "ChatGPTへのログインをキャンセルしました。",
+    "已取消 ChatGPT 登录。"
+  ],
+  "ChatGPT 로그인 주소를 확인할 수 없습니다.": [
+    "Could not verify the ChatGPT sign-in URL.",
+    "ChatGPTのログインURLを確認できませんでした。",
+    "无法验证 ChatGPT 登录网址。"
+  ],
+  "ChatGPT 로그인 브라우저를 열 수 없습니다.": [
+    "Could not open the browser for ChatGPT sign-in.",
+    "ChatGPTログイン用のブラウザーを開けませんでした。",
+    "无法打开浏览器以登录 ChatGPT。"
+  ],
+  "ChatGPT 로그인을 완료하지 못했습니다.": [
+    "ChatGPT sign-in did not finish.",
+    "ChatGPTへのログインを完了できませんでした。",
+    "未能完成 ChatGPT 登录。"
+  ],
+  "ChatGPT 연결이 필요합니다.": [
+    "Connect your ChatGPT account.",
+    "ChatGPTに接続してください。",
+    "请连接 ChatGPT 账号。"
+  ],
+  "번역용 Codex 환경을 분리하지 못했습니다.": [
+    "Could not isolate the Codex translation environment.",
+    "翻訳用のCodex環境を分離できませんでした。",
+    "无法隔离 Codex 翻译环境。"
+  ],
+  "Luna 응답을 받지 못했습니다.": [
+    "Luna did not respond.",
+    "Lunaから応答を受け取れませんでした。",
+    "未收到 Luna 响应。"
+  ],
+  "한국어": [
+    "Korean",
+    "韓国語",
+    "韩语"
+  ],
+  "영어": [
+    "English",
+    "英語",
+    "英语"
+  ],
+  "일본어": [
+    "Japanese",
+    "日本語",
+    "日语"
+  ],
+  "중국어": [
+    "Chinese",
+    "中国語",
+    "中文"
+  ],
+  "스페인어": [
+    "Spanish",
+    "スペイン語",
+    "西班牙语"
+  ],
+  "프랑스어": [
+    "French",
+    "フランス語",
+    "法语"
+  ],
+  "독일어": [
+    "German",
+    "ドイツ語",
+    "德语"
+  ],
+  "포르투갈어": [
+    "Portuguese",
+    "ポルトガル語",
+    "葡萄牙语"
+  ],
+  "이탈리아어": [
+    "Italian",
+    "イタリア語",
+    "意大利语"
+  ],
+  "러시아어": [
+    "Russian",
+    "ロシア語",
+    "俄语"
+  ],
+  "우크라이나어": [
+    "Ukrainian",
+    "ウクライナ語",
+    "乌克兰语"
+  ],
+  "그리스어": [
+    "Greek",
+    "ギリシャ語",
+    "希腊语"
+  ],
+  "베트남어": [
+    "Vietnamese",
+    "ベトナム語",
+    "越南语"
+  ],
+  "인도네시아어": [
+    "Indonesian",
+    "インドネシア語",
+    "印尼语"
+  ],
+  "말레이어": [
+    "Malay",
+    "マレー語",
+    "马来语"
+  ],
+  "튀르키예어": [
+    "Turkish",
+    "トルコ語",
+    "土耳其语"
+  ],
+  "네덜란드어": [
+    "Dutch",
+    "オランダ語",
+    "荷兰语"
+  ],
+  "폴란드어": [
+    "Polish",
+    "ポーランド語",
+    "波兰语"
+  ],
+  "스웨덴어": [
+    "Swedish",
+    "スウェーデン語",
+    "瑞典语"
+  ],
+  "체코어": [
+    "Czech",
+    "チェコ語",
+    "捷克语"
+  ],
+  "핀란드어": [
+    "Finnish",
+    "フィンランド語",
+    "芬兰语"
+  ],
+  "루마니아어": [
+    "Romanian",
+    "ルーマニア語",
+    "罗马尼亚语"
+  ]
+}

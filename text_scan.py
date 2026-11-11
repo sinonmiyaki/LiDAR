@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from aim import aim_distance
+from i18n import get_locale, tr
 from languages import DEFAULT_LANGUAGE, LANGUAGES
 from local_model import MODELS_DIR, available
 from translation_api import TranslationError
@@ -201,12 +202,17 @@ def wrap_text(text, font, max_width):
 def text_card(result):
     from PIL import Image, ImageDraw, ImageFont
 
-    heading = ImageFont.truetype(str(FONT_DIR / "Pretendard-SemiBold.otf"), 29)
-    font_path = FONT_DIR / "Pretendard-Regular.otf"
     system_faces = {"ja": "meiryo.ttc", "zh": "msyh.ttc", "ru": "segoeui.ttf", "uk": "segoeui.ttf", "el": "segoeui.ttf"}
+    windows_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    locale = get_locale()
+    heading_path = windows_fonts / system_faces[locale] if locale in system_faces else None
+    if heading_path is None or not heading_path.is_file():
+        heading_path = FONT_DIR / "Pretendard-SemiBold.ttf"
+    heading = ImageFont.truetype(str(heading_path), 29)
+    font_path = FONT_DIR / "Pretendard-Regular.ttf"
     language = result.target if result.translated or result.assisted else result.language
     if language in system_faces:
-        system_font = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / system_faces[language]
+        system_font = windows_fonts / system_faces[language]
         if system_font.is_file():
             font_path = system_font
     body = ImageFont.truetype(str(font_path), 43)
@@ -225,10 +231,18 @@ def text_card(result):
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((2, 2, width - 3, height - 3), radius=28, fill="#131313", outline="#3b3b3b", width=2)
     draw.rounded_rectangle((gutter, 41, gutter + 7, 67), radius=3, fill="#6600CC")
-    label = (f"AI 번역  ·  {LANGUAGES.get(result.language, '자동 감지')} → {LANGUAGES[result.target]}"
-             if result.translated else result.notice or "텍스트 인식")
+    source = LANGUAGES.get(result.language, "자동 감지")
+    source_label = tr(source)
+    if locale != "ko" and source_label == source and result.language:
+        source_label = result.language.upper()
+    label = (f"{tr('AI 번역')}  ·  {source_label} → {tr(LANGUAGES[result.target])}"
+             if result.translated else tr(result.notice or "텍스트 인식"))
     if result.assisted:
-        label = "AI 어시스턴트"
+        label = tr("AI 어시스턴트")
+    if heading.getlength(label) > max_width - 22:
+        while label and heading.getlength(label + "…") > max_width - 22:
+            label = label[:-1]
+        label = label.rstrip() + "…"
     draw.text((gutter + 22, 41), label, anchor="lt", font=heading, fill="#e7d6ff")
     for index, line in enumerate(lines):
         draw.text((gutter, 103 + leading * index), line, anchor="lt", font=body, fill="white")

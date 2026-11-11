@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import time
 
+from i18n import Message
+
 
 MODEL = "gpt-6-luna"
 INSTRUCTIONS = (
@@ -109,7 +111,7 @@ class AppServer:
                 if "error" in message:
                     if method == "turn/start" and (params or {}).get("effort") == "none" and rejects_none(message["error"]):
                         raise UnsupportedReasoning("Codex에서 추론 없음 설정을 거절했습니다.")
-                    raise CodexError(f"Codex에서 {method} 요청을 처리하지 못했습니다.")
+                    raise CodexError(Message("Codex에서 {method} 요청을 처리하지 못했습니다.", method=method))
                 return message.get("result", {})
             if "method" in message:
                 self.notifications.append(message)

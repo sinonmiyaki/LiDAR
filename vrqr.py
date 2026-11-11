@@ -16,6 +16,7 @@ import zxingcpp as qr
 
 from aim import ScanWindow, aim_distance, capture_bounds, project_window, reference_axes
 from gesture import CameraInput, Gesture, camera_hand, frame_position
+from i18n import Message
 from languages import DEFAULT_LANGUAGE
 from mirror import MirrorCapture
 from steam_startup import APP_KEY
@@ -243,7 +244,7 @@ def open_result(url, activate=False):
         return "QR을 읽었습니다 · 웹 링크가 포함되어 있지 않습니다"
 
     os.startfile(url, show_cmd=1 if activate else SW_SHOWNOACTIVATE)
-    return f"PC 브라우저에서 열었습니다 · {url}"
+    return Message("PC 브라우저에서 열었습니다 · {url}", url=url)
 
 
 def default_options():
@@ -318,8 +319,8 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                 try:
                     result_message = open_result(animation.url)
                 except OSError as error:
-                    result_message = f"QR은 읽었으나 브라우저를 열지 못했습니다 · {error}"
-                publish("QR", animation.url or "텍스트 QR", result_message)
+                    result_message = Message("QR은 읽었으나 브라우저를 열지 못했습니다 · {error}", error=str(error))
+                publish("QR", animation.url or Message("텍스트 QR"), result_message)
                 result_until = time.monotonic() + 3.0
                 animation = None
             stop.wait(0.012)
@@ -338,9 +339,9 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                     text_overlay = TextOverlay(api, result, text)
                     kind = "AI 어시스턴트" if text.assisted else "AI 번역" if text.translated else "텍스트"
                     publish(kind, text.source, text.output, text.target, text.provider)
-                    result_message = text.notice or f"{kind} 완료"
+                    result_message = text.notice or Message("{kind} 완료", kind=Message(kind))
             except Exception as error:
-                result_message = f"텍스트 처리 오류 · {error}"
+                result_message = Message("텍스트 처리 오류 · {error}", error=str(error))
             result_until = now + 3.0
             text_job = None
 
@@ -399,7 +400,7 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                     continue
                 result_message = "손 사이 창에서 QR이나 텍스트를 읽지 못했습니다" if read_text else "손 사이 창에서 QR을 읽지 못했습니다"
             except (vr.error_code.OpenVRError, OSError, RuntimeError, ValueError) as error:
-                result_message = f"스캔 오류 · {error}"
+                result_message = Message("스캔 오류 · {error}", error=Message(str(error)))
             result_until = time.monotonic() + 3.0
             miss_until = time.monotonic() + 0.55
 
@@ -430,7 +431,8 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
             left_mark = "✓" if left_ok else "·"
             right_mark = "✓" if right_ok else "·"
             position_mark = "✓" if position_ok else "·"
-            status = f"제스처 대기   왼손 {left_mark}   오른손 {right_mark}   위치 {position_mark}"
+            status = Message("제스처 대기   왼손 {left}   오른손 {right}   위치 {position}",
+                             left=left_mark, right=right_mark, position=position_mark)
         if status != previous_status:
             report(status)
             previous_status = status

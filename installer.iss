@@ -61,5 +61,8 @@ begin
   begin
     DeleteFile(ExpandConstant('{app}\_internal\ctranslate2.dll'));
     DeleteFile(ExpandConstant('{app}\_internal\cv2\opencv_videoio_ffmpeg500_64.dll'));
+    DeleteFile(ExpandConstant('{app}\_internal\fonts\Pretendard-Regular.otf'));
+    DeleteFile(ExpandConstant('{app}\_internal\fonts\Pretendard-SemiBold.otf'));
+    DeleteFile(ExpandConstant('{app}\_internal\fonts\Pretendard-Bold.otf'));
   end;
 end;
