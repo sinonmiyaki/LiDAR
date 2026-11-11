@@ -17,7 +17,13 @@ Windows x64용 SteamVR 스캐너입니다. [최신 Release](https://github.com/s
 
 최근 스캔이 웹 링크 QR이면 **최근 스캔** 카드에서 주소를 눌러 다시 열 수 있습니다.
 
-OCR은 설치 프로그램에 포함된 [RapidOCR](https://github.com/RapidAI/RapidOCR)과 PP-OCR 모델을 사용해 PC에서 실행합니다. **설정 → ChatGPT 연결**에서 로그인하면 OCR 텍스트를 [Codex App Server](https://learn.chatgpt.com/docs/app-server)를 통해 GPT-6 Luna에 추론 `none`으로 전송합니다. 이 기능에는 최신 Codex CLI 또는 Codex 데스크톱과 계정의 Luna 사용 권한이 필요하며, [Codex 사용 한도](https://learn.chatgpt.com/docs/pricing)가 적용됩니다. 연결 전이나 번역 요청 실패 시에는 [fastText](https://fasttext.cc/docs/en/language-identification.html)와 [M2M-100](https://huggingface.co/facebook/m2m100_418M)으로 PC에서 처리합니다.
+OCR은 설치 프로그램에 포함된 [RapidOCR](https://github.com/RapidAI/RapidOCR)과 PP-OCR 모델을 사용해 PC에서 실행합니다. 대시보드에서 **QR 스캔**과 **AI 번역**을 각각 켜고 끌 수 있습니다. **설정 → 번역 모델 설정**에서 아래 모델을 고릅니다.
+
+- **GPT-6 Luna**는 ChatGPT 연결 후 추론 `none`으로 요청합니다. Codex가 해당 설정을 거절하고 `low`를 제공하면 `low`로 전환합니다. 번역은 로그인한 계정의 Codex 사용 한도에 포함됩니다. [Codex 사용 한도](https://learn.chatgpt.com/docs/pricing)
+- **DeepL**은 사용자별 API 키가 필요합니다. 신규 Developer 플랜은 총 100만 자를 체험할 수 있고 한도는 초기화되지 않습니다. Developer 키는 개인정보가 없는 텍스트에만 사용하세요. [요금제](https://support.deepl.com/hc/en-us/articles/360021200939-DeepL-API-plans) · [이용 약관](https://www.deepl.com/en/pro-license_embedded)
+- **Local (M2M-100 418M INT8)**은 모델을 처음 한 번 다운로드한 뒤 오프라인으로 번역합니다. 기존 버전에서 모델이 설치되어 있으면 재사용합니다. VRChat과 동시에 실행하면 CPU와 메모리 사용량이 늘 수 있습니다.
+
+클라우드 모델에는 OCR로 읽은 텍스트를 보냅니다. 번역 요청이 실패하면 VR에 원문을 표시합니다. API 키는 Windows 사용자 계정으로 암호화해 저장합니다.
 
 **설정 → SteamVR 기동 시 자동 실행**을 켜면 실행 중인 SteamVR에 LiDAR를 등록합니다. SteamVR이 꺼져 있을 때 바꾼 설정은 다음에 두 프로그램이 함께 실행될 때 적용됩니다.
 
@@ -31,6 +37,8 @@ PC 화면과 VR 결과 카드에 [Pretendard](https://github.com/orioncactus/pre
 
 ## Windows 빌드
 
+앱 UI에서 표시하는 팝업은 `InAppDialog`를 사용해 LiDAR 메인 창 안에서 엽니다.
+
 Python 3.10 x64와 Inno Setup 6.7을 사용합니다. `updater.py`의 `VERSION`, Inno Setup의 `AppVersion`, GitHub 릴리스 태그 `vX.Y.Z`를 일치시킵니다.
 
 ```powershell
@@ -38,7 +46,7 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt pyinstaller==6.20.0
 .\.venv\Scripts\python fetch_models.py
 .\.venv\Scripts\python -m PyInstaller --noconfirm LiDAR.spec
-ISCC.exe /DAppVersion=0.1.0 installer.iss
+ISCC.exe /DAppVersion=0.2.3 installer.iss
 ```
 
-Inno Setup의 `Output` 폴더에 생성된 `LiDAR-Setup-0.1.0-x64.exe`를 같은 버전의 GitHub Release에 첨부합니다.
+Inno Setup의 `Output` 폴더에 생성된 설치 파일을 같은 버전의 GitHub Release에 첨부합니다.

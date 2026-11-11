@@ -14,6 +14,7 @@ datas = [
     (str(root / "fonts"), "fonts"),
     (str(root / "brand" / "lidar-wordmark.png"), "brand"),
     (str(root / "languages.json"), "."),
+    (str(root / "translation-model.json"), "."),
     (str(Path(sys.base_prefix) / "LICENSE.txt"), "licenses/python"),
 ]
 datas += collect_data_files("rapidocr")
@@ -39,9 +40,9 @@ while package_names:
             if path.is_file():
                 datas.append((str(path), f"licenses/{name}"))
 
-binaries = []
-for package in ("openvr", "ctranslate2", "onnxruntime"):
-    binaries += collect_dynamic_libs(package)
+binaries = collect_dynamic_libs("openvr", search_patterns=["libopenvr_api_64.dll"])
+binaries += collect_dynamic_libs("onnxruntime")
+binaries += collect_dynamic_libs("ctranslate2")
 
 analysis = Analysis(
     [str(root / "app.py")],
@@ -52,6 +53,17 @@ analysis = Analysis(
     excludes=["pkg_resources", "torch", "torchvision", "tensorflow", "scipy",
               "matplotlib", "pandas", "IPython", "pytest", "transformers", "paddle", "openvino"],
 )
+
+# The app processes images in memory. It does not use OpenCV's optional
+# FFmpeg video plugin. NumPy and Shapely load their wheel DLLs from .libs.
+wheel_dlls = {source for name, source, _ in analysis.binaries
+              if Path(name).parent.name in {"numpy.libs", "Shapely.libs", "ctranslate2"}}
+analysis.binaries = [
+    (name, source, kind) for name, source, kind in analysis.binaries
+    if not Path(name).name.startswith("opencv_videoio_ffmpeg")
+    and not (name == Path(name).name and source in wheel_dlls)
+]
+
 pyz = PYZ(analysis.pure)
 exe = EXE(
     pyz, analysis.scripts, [],

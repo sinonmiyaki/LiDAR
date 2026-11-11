@@ -35,8 +35,9 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "{#AppFiles}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#ModelFiles}\m2m100\*"; DestDir: "{app}\models\m2m100"; Flags: ignoreversion recursesubdirs
+Source: "{#AppFiles}\LiDAR.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppFiles}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ModelFiles}\lid.176.ftz"; DestDir: "{app}\models"; Flags: ignoreversion
 Source: "{#ModelFiles}\ocr\*"; DestDir: "{app}\models\ocr"; Flags: ignoreversion recursesubdirs
 Source: "LiDAR.vrmanifest"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -52,3 +53,13 @@ Filename: "{app}\LiDAR.exe"; Description: "LiDAR"; Flags: nowait postinstall ski
 
 [UninstallRun]
 Filename: "{app}\LiDAR.exe"; Parameters: "--unregister-steamvr"; Flags: runhidden; RunOnceId: "RemoveSteamVRRegistration"
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    DeleteFile(ExpandConstant('{app}\_internal\ctranslate2.dll'));
+    DeleteFile(ExpandConstant('{app}\_internal\cv2\opencv_videoio_ffmpeg500_64.dll'));
+  end;
+end;

@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.3"
 REPOSITORY = "sinonmiyaki/LiDAR"
 RELEASES = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
 

@@ -5,11 +5,11 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
-import sys
 
 from aim import aim_distance
-from codex_bridge import CodexError
 from languages import DEFAULT_LANGUAGE, LANGUAGES
+from local_model import MODELS_DIR, available
+from translation_api import TranslationError
 from typography import FONT_DIR
 
 
@@ -31,19 +31,20 @@ class TextResult:
     translated: bool
     target: str = DEFAULT_LANGUAGE
     provider: str = ""
+    notice: str = ""
+    assisted: bool = False
 
 
 class TextReader:
     def __init__(self):
-        app = Path(sys.executable if getattr(sys, "frozen", False) else __file__)
-        self.models = app.with_name("models")
+        self.models = MODELS_DIR
         self.ocr = None
         self.recognizers = {}
         self.detector = None
-        self.tokenizer = None
         self.translator = None
+        self.tokenizer = None
 
-    def read(self, frames, target=DEFAULT_LANGUAGE, cloud_translate=None):
+    def read(self, frames, target=DEFAULT_LANGUAGE, cloud_translate=None, assist=None):
         for capture, bounds, projections in frames:
             source = self.read_frame(capture, bounds, projections)
             if source:
@@ -51,23 +52,25 @@ class TextReader:
                 languages = [self.source_language(line) for line in lines]
                 distinct = set(languages) - {""}
                 language = next(iter(distinct)) if len(distinct) == 1 else ""
-                pending = [(index, line, code) for index, (line, code) in enumerate(zip(lines, languages))
-                           if code and code != target]
-                fallback = False
-                if cloud_translate and any(code != target and any(char.isalpha() for char in line)
-                                           for line, code in zip(lines, languages)):
+                needs_translation = any(code != target and any(char.isalpha() for char in line)
+                                        for line, code in zip(lines, languages))
+                notice = ""
+                if assist:
                     try:
-                        translated = cloud_translate(source, LANGUAGES[target])
+                        answer = assist(source, target)
+                        if answer:
+                            return TextResult(source, answer, language, False, target, "Luna", assisted=True)
+                    except TranslationError as error:
+                        notice = str(error)
+                if needs_translation and cloud_translate:
+                    try:
+                        translated = cloud_translate(source, target, lambda: self.translate_local(lines, languages, target))
                         if translated:
-                            return TextResult(source, translated, language, True, target, "Luna")
-                    except (CodexError, OSError, KeyError, TypeError, ValueError):
-                        fallback = True
-                if pending:
-                    translations = self.translate([(line, code) for _, line, code in pending], target)
-                    for (index, _, _), translation in zip(pending, translations):
-                        lines[index] = translation or lines[index]
-                provider = "Luna 연결 실패" if fallback else ""
-                return TextResult(source, "\n".join(lines), language, bool(pending), target, provider)
+                            output, provider = translated
+                            return TextResult(source, output, language, True, target, provider, notice)
+                    except TranslationError as error:
+                        notice = str(error)
+                return TextResult(source, source, language, False, target, notice=notice)
         return None
 
     def source_language(self, text):
@@ -77,10 +80,49 @@ class TextReader:
             import fasttext_pybind
 
             self.detector = fasttext_pybind.fasttext()
-            self.detector.loadModel(str(self.models / "m2m100" / "lid.176.ftz"))
+            self.detector.loadModel(str(self.models / "lid.176.ftz"))
         predictions = self.detector.predict(text + "\n", 1, 0.0, "strict")
         code = predictions[0][1].removeprefix("__label__") if predictions else ""
         return code if code in LANGUAGES else ""
+
+    def release_model(self):
+        self.translator = None
+        self.tokenizer = None
+
+    def translate_local(self, lines, languages, target):
+        folder = self.models / "m2m100"
+        if not available(folder):
+            raise TranslationError("설정에서 Local 번역 모델을 다운로드하세요")
+        pending = [(index, line, code) for index, (line, code) in enumerate(zip(lines, languages))
+                   if code and code != target]
+        if not pending:
+            raise TranslationError("Local 모델이 원문 언어를 확인하지 못했습니다")
+        try:
+            translations = self.translate([(line, code) for _, line, code in pending], target)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise TranslationError("Local 번역 모델을 열지 못했습니다") from error
+        for (index, _, _), translated in zip(pending, translations):
+            lines[index] = translated or lines[index]
+        return "\n".join(lines)
+
+    def translate(self, lines, target):
+        if self.translator is None:
+            import ctranslate2
+            import sentencepiece
+
+            folder = self.models / "m2m100"
+            self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=str(folder / "sentencepiece.bpe.model"))
+            self.translator = ctranslate2.Translator(str(folder), device="cpu", compute_type="int8", intra_threads=3)
+
+        prefix = f"__{target}__"
+        tokens = [[f"__{code}__", *self.tokenizer.encode(line, out_type=str), "</s>"] for line, code in lines]
+        results = self.translator.translate_batch(tokens, target_prefix=[[prefix]] * len(tokens),
+                                                  beam_size=2, max_decoding_length=160)
+        outputs = []
+        for result in results:
+            words = result.hypotheses[0]
+            outputs.append(self.tokenizer.decode(words[1:] if words[:1] == [prefix] else words))
+        return outputs
 
     def read_frame(self, capture, bounds, projections):
         import numpy as np
@@ -141,26 +183,6 @@ class TextReader:
                         and script_count * 2 >= sum(char.isalpha() for char in text)):
                     lines[index] = text, score
 
-    def translate(self, lines, target):
-        if self.translator is None:
-            import ctranslate2
-            import sentencepiece
-
-            folder = self.models / "m2m100"
-            self.tokenizer = sentencepiece.SentencePieceProcessor(model_file=str(folder / "sentencepiece.bpe.model"))
-            self.translator = ctranslate2.Translator(str(folder), device="cpu", compute_type="int8", intra_threads=3)
-
-        prefix = f"__{target}__"
-        tokens = [[f"__{code}__", *self.tokenizer.encode(line, out_type=str), "</s>"] for line, code in lines]
-        results = self.translator.translate_batch(tokens, target_prefix=[[prefix]] * len(tokens),
-                                                  beam_size=2, max_decoding_length=160)
-        outputs = []
-        for result in results:
-            words = result.hypotheses[0]
-            outputs.append(self.tokenizer.decode(words[1:] if words[:1] == [prefix] else words))
-        return outputs
-
-
 def wrap_text(text, font, max_width):
     lines = []
     for paragraph in text.splitlines():
@@ -182,7 +204,7 @@ def text_card(result):
     heading = ImageFont.truetype(str(FONT_DIR / "Pretendard-SemiBold.otf"), 29)
     font_path = FONT_DIR / "Pretendard-Regular.otf"
     system_faces = {"ja": "meiryo.ttc", "zh": "msyh.ttc", "ru": "segoeui.ttf", "uk": "segoeui.ttf", "el": "segoeui.ttf"}
-    language = result.target if result.translated else result.language
+    language = result.target if result.translated or result.assisted else result.language
     if language in system_faces:
         system_font = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / system_faces[language]
         if system_font.is_file():
@@ -203,7 +225,10 @@ def text_card(result):
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((2, 2, width - 3, height - 3), radius=28, fill="#131313", outline="#3b3b3b", width=2)
     draw.rounded_rectangle((gutter, 41, gutter + 7, 67), radius=3, fill="#6600CC")
-    label = f"AI 번역  ·  {LANGUAGES.get(result.language, '자동 감지')} → {LANGUAGES[result.target]}" if result.translated else "텍스트 인식"
+    label = (f"AI 번역  ·  {LANGUAGES.get(result.language, '자동 감지')} → {LANGUAGES[result.target]}"
+             if result.translated else result.notice or "텍스트 인식")
+    if result.assisted:
+        label = "AI 어시스턴트"
     draw.text((gutter + 22, 41), label, anchor="lt", font=heading, fill="#e7d6ff")
     for index, line in enumerate(lines):
         draw.text((gutter, 103 + leading * index), line, anchor="lt", font=body, fill="white")

@@ -3,19 +3,23 @@
 import ctypes
 from queue import Empty, SimpleQueue
 from pathlib import Path
+import re
 import subprocess
 import sys
 from threading import Event, Thread
+from time import perf_counter
 import tkinter as tk
-from tkinter import font as tkfont, messagebox
+from tkinter import font as tkfont
 import webbrowser
 
 from PIL import Image, ImageTk
 
-from codex_bridge import CodexBridge, CodexError
+from codex_bridge import CodexBridge, CodexError, UnsupportedReasoning
 from vrqr import open_result, watch_sessions, web_url
 from languages import LANGUAGES, TARGET_LANGUAGES, load_settings, load_target, save_settings, save_target
+from local_model import MODELS_DIR, available, download_model
 from steam_startup import MANIFEST, SteamStartup, unregister
+from translation_api import TranslationError, decrypt_key, encrypt_key, translate
 from typography import FAMILY, SEMIBOLD, configure_scale, prepare_desktop, px
 from updater import VERSION, download_installer, latest_release
 
@@ -23,6 +27,14 @@ from updater import VERSION, download_installer, latest_release
 PAPER, WHITE, INK = "#f4f4f5", "#ffffff", "#151515"
 MUTED, LINE = "#626268", "#e8e8ea"
 VIOLET, LAVENDER = "#6600CC", "#f0e6fa"
+TRANSLATION_SERVICES = {"luna": "GPT-6 Luna", "deepl": "DeepL", "local": "Local (M2M-100 418M INT8)"}
+MODEL_DESCRIPTIONS = {
+    "luna": "ChatGPT 계정으로 연결해 OCR 텍스트를 번역합니다.",
+    "deepl": "DeepL API 키로 연결해 온라인으로 번역합니다.",
+    "local": "모델을 다운로드한 뒤 오프라인으로 번역합니다.",
+}
+FEATURES = {"qr", "translation"}
+WINDOWS_TIMER = ctypes.WinDLL("winmm.dll") if sys.platform == "win32" else None
 
 
 def label(parent, text="", *, variable=None, size=10, weight="normal", fg=INK, bg=None, wrap=0):
@@ -30,6 +42,46 @@ def label(parent, text="", *, variable=None, size=10, weight="normal", fg=INK, b
     font = (SEMIBOLD, size) if weight == "semibold" else (FAMILY, size, weight)
     return tk.Label(parent, **options, font=font, fg=fg,
                     bg=bg or parent["bg"], anchor="w", justify="left", wraplength=px(wrap))
+
+
+def blend_color(start, end, progress):
+    return "#" + "".join(f"{round((a + (b - a) * progress) / 257):02x}" for a, b in zip(start, end))
+
+
+class Motion:
+    def __init__(self, widget):
+        self.widget = widget
+        self.job = None
+        self.timer_requested = False
+
+    def start(self, duration, draw):
+        self.cancel()
+        if WINDOWS_TIMER is not None:
+            self.timer_requested = WINDOWS_TIMER.timeBeginPeriod(1) == 0
+        start = perf_counter()
+
+        def frame():
+            self.job = None
+            elapsed = min((perf_counter() - start) / duration, 1)
+            try:
+                draw(1 - (1 - elapsed) ** 3)
+                if elapsed < 1:
+                    self.job = self.widget.after(8, frame)
+                else:
+                    self.cancel()
+            except Exception:
+                self.cancel()
+                raise
+
+        frame()
+
+    def cancel(self):
+        if self.job is not None:
+            self.widget.after_cancel(self.job)
+            self.job = None
+        if self.timer_requested:
+            WINDOWS_TIMER.timeEndPeriod(1)
+            self.timer_requested = False
 
 
 class HoverButton(tk.Canvas):
@@ -45,7 +97,7 @@ class HoverButton(tk.Canvas):
         self.caption = text
         self.button_font = (SEMIBOLD, 10)
         self.enabled = True
-        self.animation = None
+        self.motion = Motion(self)
         self.background = self.create_polygon(0, 0, fill=bg, smooth=True, splinesteps=18)
         self.title = self.create_text(0, 0, text=text, anchor=anchor, fill=fg, font=self.button_font,
                                       width=wraplength, justify=justify)
@@ -79,7 +131,8 @@ class HoverButton(tk.Canvas):
             self.itemconfigure(self.title, fill=self.foreground if self.enabled else self.disabled_foreground)
             if not self.enabled:
                 self.tint(self.normal)
-        self.update_text()
+        if text is not None or font is not None:
+            self.update_text()
         if options:
             return super().configure(**options)
 
@@ -107,25 +160,36 @@ class HoverButton(tk.Canvas):
         self.tint(bg)
 
     def tint(self, color):
-        if self.animation is not None:
-            self.after_cancel(self.animation)
         start = self.winfo_rgb(self.itemcget(self.background, "fill"))
         finish = self.winfo_rgb(color)
-
-        def animate(step):
-            mix = 1 - (1 - step / 5) ** 2
-            value = "#" + "".join(f"{round((a + (b - a) * mix) / 257):02x}" for a, b in zip(start, finish))
-            self.itemconfigure(self.background, fill=value)
-            self.animation = self.after(16, animate, step + 1) if step < 5 else None
-
-        animate(1)
+        self.motion.start(.075, lambda progress: self.itemconfigure(
+            self.background, fill=blend_color(start, finish, progress)))
 
     def destroy(self):
-        if self.animation is not None:
-            self.after_cancel(self.animation)
+        self.motion.cancel()
         if self.trace is not None:
             self.variable.trace_remove("write", self.trace)
         super().destroy()
+
+
+class ModelChoice(HoverButton):
+    def __init__(self, parent, title, description, command, selected, warning=""):
+        super().__init__(parent, title, command, LAVENDER if selected else PAPER,
+                         "#e5d3f7" if selected else "#e6e6e8", VIOLET if selected else INK,
+                         padding=(12, 6), anchor="w")
+        self.description = self.create_text(0, 0, text=description, anchor="nw", fill=MUTED, font=(FAMILY, 9))
+        self.warning = self.create_text(0, 0, text=warning, anchor="nw", fill="#a31934", font=(SEMIBOLD, 9))
+        self.configure(font=(SEMIBOLD, 11), height=px(122))
+
+    def draw(self, event):
+        super().draw(event)
+        x = self.padding[0]
+        width = max(1, event.width - 2 * x)
+        self.coords(self.title, x, px(25))
+        self.coords(self.description, x, px(51))
+        self.coords(self.warning, x, px(96))
+        for item in (self.title, self.description, self.warning):
+            self.itemconfigure(item, width=width)
 
 
 class Card(tk.Canvas):
@@ -148,29 +212,141 @@ class Card(tk.Canvas):
         self.configure(height=max(int(self["height"]), self.body.winfo_reqheight() + 2 * self.inset + 2))
 
 
+class InAppDialog(tk.Frame):
+    """Host modal app UI inside the main window."""
+
+    def __init__(self, viewport, title, dismiss):
+        super().__init__(viewport, bg="#dedee3")
+        self.dismiss = dismiss
+        self.previous_focus = self.focus_get()
+        self.motion = Motion(self)
+        self.card = Card(self, height=1, inset=24)
+        self.card.configure(bg=self["bg"])
+        self.body = self.card.body
+        label(self.body, title, size=17, weight="bold").pack(anchor="w")
+        self.bind("<Button-1>", lambda _: self.dismiss())
+
+    def open(self, first_control):
+        self.body.update_idletasks()
+        padding = 2 * self.card.inset + 2
+        self.card.configure(width=self.body.winfo_reqwidth() + padding,
+                            height=self.body.winfo_reqheight() + padding)
+        self.place(relwidth=1, relheight=1)
+        self.lift()
+        self.card.place(relx=.5, rely=.5, anchor="center")
+        self.grab_set()
+        first_control.focus_set()
+        self.motion.start(.1, lambda progress: self.card.place_configure(y=px(8 * (1 - progress))))
+
+    def cycle_focus(self, reverse):
+        current = self.focus_get() or self
+        candidate = current
+        while True:
+            candidate = candidate.tk_focusPrev() if reverse else candidate.tk_focusNext()
+            if candidate is None or candidate == current:
+                return
+            if str(candidate).startswith(f"{self}."):
+                candidate.focus_set()
+                return
+
+    def destroy(self):
+        self.motion.cancel()
+        if self.grab_current() == self:
+            self.grab_release()
+        super().destroy()
+        if self.previous_focus is not None and self.previous_focus.winfo_exists():
+            self.previous_focus.focus_set()
+
+
+class FeatureCard(Card):
+    def __init__(self, parent, title, value, active, command, settings=None):
+        super().__init__(parent, height=122)
+        self.level = float(active)
+        self.motion = Motion(self)
+        self.colors = {color: self.winfo_rgb(color) for color in (WHITE, INK, LINE, "#aaaab1", VIOLET)}
+        self.header = tk.Frame(self.body, bg=WHITE)
+        self.header.pack(fill="x")
+        self.title = label(self.header, title, size=10, weight="semibold")
+        self.title.pack(side="left")
+        self.switch = tk.Canvas(self.header, width=px(39), height=px(23), bg=WHITE, highlightthickness=0,
+                                bd=0, cursor="hand2" if command else "arrow", takefocus=bool(command))
+        self.switch.pack(side="right")
+        self.track = self.switch.create_line(px(10), px(11), px(29), px(11), capstyle="round", width=px(17))
+        self.knob = self.switch.create_oval(0, 0, 0, 0, fill=WHITE, outline="")
+        if command:
+            for event in ("<ButtonRelease-1>", "<Return>", "<space>"):
+                self.switch.bind(event, lambda _: command())
+        self.switch.bind("<FocusIn>", lambda _: self.switch.configure(highlightthickness=1, highlightbackground=VIOLET))
+        self.switch.bind("<FocusOut>", lambda _: self.switch.configure(highlightthickness=0))
+        self.value = label(self.body, variable=value, size=14, weight="bold", wrap=188)
+        self.value.pack(side="left", anchor="nw", pady=(px(9), 0), fill="x", expand=True)
+        self.gear = None
+        if settings:
+            self.gear = HoverButton(self.body, "⚙", settings, PAPER, LAVENDER, VIOLET, padding=(6, 0))
+            self.gear.configure(font=("Segoe UI Symbol", 11))
+            self.gear.pack(side="right", anchor="n", pady=(px(8), 0))
+        self.draw_level(self.level)
+        self.fit_height()
+
+    def draw_level(self, level):
+        def mix(start, end):
+            return blend_color(self.colors[start], self.colors[end], level)
+
+        self.level = level
+        bg = mix(WHITE, INK)
+        self.itemconfigure(self.background, fill=bg, outline=mix(LINE, INK))
+        for widget in (self.body, self.header, self.switch):
+            widget.configure(bg=bg)
+        foreground = WHITE if level > .55 else INK
+        self.title.configure(bg=bg, fg=foreground)
+        self.value.configure(bg=bg, fg=foreground)
+        if self.gear:
+            self.gear.configure(bg=bg)
+        self.switch.itemconfigure(self.track, fill=mix("#aaaab1", VIOLET))
+        x = px(10 + level * 19)
+        self.switch.coords(self.knob, x - px(6), px(5), x + px(6), px(17))
+
+    def animate(self, active):
+        start = self.level
+        self.motion.start(.095, lambda progress: self.draw_level(start + (float(active) - start) * progress))
+
+    def destroy(self):
+        self.motion.cancel()
+        super().destroy()
+
+
 class ScannerWindow:
     def __init__(self, root):
         self.root = root
         self.stop = Event()
         self.events = SimpleQueue()
         preferences = load_settings()
+        self.translation_config = self.load_translation_config(preferences)
+        saved_features = preferences.get("enabled_features")
+        self.features = frozenset(key for key in saved_features if isinstance(key, str) and key in FEATURES) if isinstance(saved_features, list) else frozenset(("qr",))
+        self.feature_cards = {}
+        self.dialog = None
+        self.model_body = None
+        self.local_downloading = False
+        self.local_status = tk.StringVar()
         self.startup_preference = preferences.get("steamvr_auto_start")
         self.startup_status = tk.StringVar(value="자동 실행 켜짐" if self.startup_preference else "자동 실행 꺼짐")
         self.startup_button = None
         self.startup = SteamStartup(lambda: self.startup_preference,
                                     lambda *status: self.events.put(("startup", status)))
         self.skipped_version = preferences.get("skipped_version")
-        self.update_popup = None
+        self.pending_update = None
         self.update_installer = None
         self.codex = CodexBridge(self.stop)
         self.login_cancel = Event()
-        self.luna_enabled = Event()
+        self.luna_effort = None
+        self.luna_fallback = None
         self.luna_signed_in = False
         self.luna_operation = None
         self.luna_status = tk.StringVar(value="연결 확인 중")
         self.luna_controls = None
         self.connection = tk.StringVar(value="SteamVR 연결 확인 중")
-        self.scan_state = tk.StringVar(value="대기 중")
+        self.scan_state = tk.StringVar(value="대기 중" if "qr" in self.features else "꺼짐")
         self.status = tk.StringVar(value="")
         self.recent_kind = tk.StringVar(value="대기 중")
         self.recent_source = tk.StringVar(value="아직 스캔 결과가 없습니다.")
@@ -180,11 +356,14 @@ class ScannerWindow:
         self.latest_text = ("아직 읽은 텍스트가 없습니다.", "번역 결과가 여기에 표시됩니다.")
         self.target = load_target()
         self.target_label = tk.StringVar(value=LANGUAGES[self.target])
+        self.model_label = tk.StringVar()
+        self.selected_model_label = tk.StringVar()
+        self.assistant_label = tk.StringVar(value="준비 중")
+        self.refresh_model_labels()
         self.result_label = tk.StringVar(value="번역 결과")
         self.detail_boxes = None
         self.current_page = None
         self.language_back = "dashboard"
-        self.transition_job = None
 
         root.title("LiDAR")
         icon = Path(__file__).with_name("LiDAR.ico")
@@ -232,10 +411,11 @@ class ScannerWindow:
             side="left", padx=(0, px(12)), pady=px(8))
         self.connection.trace_add("write", lambda *_: dot.itemconfigure(
             mark, fill=VIOLET if self.connection.get() == "SteamVR 연결됨" else MUTED))
-        viewport = tk.Frame(main, bg=PAPER)
-        viewport.pack(fill="both", expand=True)
-        self.view = tk.Frame(viewport, bg=PAPER)
+        self.viewport = tk.Frame(main, bg=PAPER)
+        self.viewport.pack(fill="both", expand=True)
+        self.view = tk.Frame(self.viewport, bg=PAPER)
         self.view.place(x=0, y=0, relwidth=1, relheight=1)
+        self.page_motion = Motion(self.view)
         footer = tk.Frame(main, bg=PAPER)
         label(footer, variable=self.status, fg=MUTED, size=9, wrap=690).pack(side="left", fill="x", expand=True)
 
@@ -249,11 +429,14 @@ class ScannerWindow:
 
         self.show("dashboard")
         root.bind("<Escape>", self.dismiss_settings)
+        root.bind("<Tab>", self.cycle_dialog_focus)
+        root.bind("<Shift-Tab>", lambda _: self.cycle_dialog_focus(reverse=True))
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.worker = Thread(target=self.scan, daemon=True)
         self.worker.start()
         self.refresh_job = root.after(70, self.refresh)
-        self.check_luna("status", self.codex.status, "연결 확인 중")
+        if self.translation_config[0] == "luna":
+            self.check_luna("status", self.codex.status, "연결 확인 중")
         Thread(target=self.check_updates, daemon=True).start()
 
     def show(self, page):
@@ -263,6 +446,7 @@ class ScannerWindow:
         self.current_page = page
         self.detail_boxes = None
         self.recent_widgets = None
+        self.feature_cards = {}
         self.luna_controls = None
         self.startup_button = None
         for child in self.view.winfo_children():
@@ -293,47 +477,27 @@ class ScannerWindow:
             self.subtitle.pack_forget()
             card = Card(self.view, height=145)
             card.pack(fill="x")
-            label(card.body, "준비 중", size=19, weight="bold").pack(anchor="w", pady=px(24))
+            label(card.body, variable=self.assistant_label, size=19, weight="bold").pack(anchor="w", pady=(px(9), px(7)))
+            card.fit_height()
         if animate:
             self.slide_page()
 
     def slide_page(self):
-        if self.transition_job is not None:
-            self.root.after_cancel(self.transition_job)
-
-        def draw(step):
-            self.view.place_configure(y=px(8 * (1 - step / 7) ** 3))
-            self.transition_job = self.root.after(16, draw, step + 1) if step < 7 else None
-
-        draw(0)
+        self.page_motion.start(.1, lambda progress: self.view.place_configure(y=px(7 * (1 - progress))))
 
     def dashboard(self):
         summary = tk.Frame(self.view, bg=PAPER)
         summary.pack(fill="x", pady=(0, px(13)))
         for column in range(3):
             summary.columnconfigure(column, weight=1, uniform="summary")
-        tiles = (
-            ("스캔 상태", self.scan_state, "QR 및 텍스트 인식", INK, WHITE, "#c8c8cb"),
-            ("AI 번역", self.target_label, "원문 언어 자동 감지", WHITE, INK, MUTED),
-            ("AI 어시스턴트", "준비 중", "", WHITE, INK, MUTED),
-        )
-        for index, (title, value, caption, bg, fg, sub) in enumerate(tiles):
-            card = Card(summary, height=115, color=bg, border=bg if index == 0 else LINE)
+        tiles = (("qr", "QR 스캔", self.scan_state), ("translation", "AI 번역", self.model_label),
+                 ("assistant", "AI 어시스턴트", self.assistant_label))
+        for index, (feature, title, value) in enumerate(tiles):
+            settings = self.open_translation_card_settings if feature == "translation" else None
+            toggle = (lambda key=feature: self.toggle_feature(key)) if feature in FEATURES else None
+            card = FeatureCard(summary, title, value, feature in self.features, toggle, settings)
+            self.feature_cards[feature] = card
             card.grid(row=0, column=index, sticky="nsew", padx=(0, px(12) if index < 2 else 0))
-            if index == 1:
-                header = tk.Frame(card.body, bg=WHITE)
-                header.pack(fill="x")
-                label(header, title, size=9, weight="semibold", fg=sub).pack(side="left")
-                gear = HoverButton(header, "⚙", self.choose_language, PAPER, LAVENDER, VIOLET, padding=(7, 1))
-                gear.configure(font=("Segoe UI Symbol", 12))
-                gear.pack(side="right")
-            else:
-                label(card.body, title, size=9, weight="semibold", fg=sub).pack(anchor="w")
-            label(card.body, value if isinstance(value, str) else "", variable=value if isinstance(value, tk.StringVar) else None,
-                  size=19, weight="bold", fg=fg).pack(anchor="w", pady=(px(4), px(2)))
-            if caption:
-                label(card.body, caption, size=9, fg=sub).pack(anchor="w")
-            card.fit_height()
 
         lower = tk.Frame(self.view, bg=PAPER)
         lower.pack(fill="both", expand=True)
@@ -414,24 +578,12 @@ class ScannerWindow:
         label(language.body, variable=self.target_label, fg=MUTED).pack(anchor="w", pady=(px(4), 0))
         language.fit_height()
 
-        card = Card(self.view, height=225, inset=22)
+        card = Card(self.view, height=90, inset=22)
         card.pack(fill="x", pady=(0, px(12)))
         body = card.body
-        label(body, "ChatGPT 연결", size=15, weight="bold").pack(anchor="w")
-        label(body, "GPT-6 Luna · 추론 없음", size=11, weight="semibold").pack(anchor="w", pady=(px(10), 0))
-        label(body, "연결하면 OCR로 읽은 텍스트를 Luna로 번역합니다. 연결이 끊기면 PC에서 번역합니다.",
-              fg=MUTED, wrap=465).pack(anchor="w", pady=(px(5), 0))
-        label(body, variable=self.luna_status, fg=VIOLET, wrap=465).pack(anchor="w", pady=(px(11), px(9)))
-        actions = tk.Frame(body, bg=WHITE)
-        actions.pack(fill="x")
-        action = HoverButton(actions, "", self.toggle_luna, VIOLET, "#4e009e", WHITE,
-                             disabledforeground="#dfc9f5")
-        action.pack(side="left")
-        check = HoverButton(actions, "상태 확인", lambda: self.check_luna("status", self.codex.status, "연결 확인 중"),
-                            PAPER, LAVENDER, INK)
-        check.pack(side="left", padx=(px(8), 0))
-        self.luna_controls = action, check
-        self.render_luna()
+        HoverButton(body, "모델 선택", self.show_model_settings, PAPER, LAVENDER, VIOLET).pack(side="right")
+        label(body, "번역 모델 설정", size=15, weight="bold").pack(anchor="w")
+        label(body, variable=self.selected_model_label, fg=MUTED).pack(anchor="w", pady=(px(4), 0))
         card.fit_height()
 
         startup = Card(self.view, height=92, inset=22)
@@ -443,6 +595,189 @@ class ScannerWindow:
         self.render_startup()
         startup.fit_height()
         label(self.view, f"LiDAR {VERSION}", fg=MUTED, size=9).pack(anchor="e", pady=(px(9), 0))
+
+    def refresh_model_labels(self):
+        provider = self.translation_config[0]
+        self.selected_model_label.set(TRANSLATION_SERVICES.get(provider, "번역 모델을 정해주세요"))
+        self.model_label.set(LANGUAGES[self.target] if provider else "번역 모델을 정해주세요")
+
+    def toggle_feature(self, feature):
+        if feature not in FEATURES:
+            return
+        changed = self.features ^ {feature}
+        try:
+            save_settings(enabled_features=sorted(changed))
+        except OSError:
+            self.status.set("기능 설정을 저장하지 못했습니다.")
+            return
+        self.features = changed
+        card = self.feature_cards.get(feature)
+        if card:
+            card.animate(feature in changed)
+        if feature == "qr":
+            self.scan_state.set("대기 중" if feature in changed else "꺼짐")
+
+    def open_translation_card_settings(self):
+        if self.translation_config[0]:
+            self.choose_language()
+        else:
+            self.show_model_settings()
+
+    def show_model_settings(self):
+        if self.dialog is not None:
+            return
+
+        def close():
+            self.luna_controls = None
+            self.model_body = None
+            self.close_dialog()
+            if self.pending_update:
+                release, self.pending_update = self.pending_update, None
+                self.show_update(release)
+
+        self.dialog = InAppDialog(self.viewport, "번역 모델 설정", close)
+        panel = self.dialog.body
+        self.model_body = tk.Frame(panel, bg=WHITE, width=px(624), height=px(330))
+        self.model_body.pack(fill="x", pady=(px(14), px(8)))
+        self.model_body.pack_propagate(False)
+        HoverButton(panel, "닫기", close, PAPER, LAVENDER, INK, padding=(13, 6)).pack(anchor="e")
+        first_control = self.render_models()
+        self.dialog.open(first_control)
+        if self.translation_config[0] == "luna":
+            self.check_luna("status", self.codex.status, "연결 확인 중")
+
+    def render_models(self):
+        if self.model_body is None:
+            return
+        body = self.model_body
+        self.luna_controls = None
+        for child in body.winfo_children():
+            child.destroy()
+        current = self.translation_config[0]
+        grid = tk.Frame(body, bg=WHITE)
+        grid.pack(fill="x")
+        first_control = None
+        for column, (provider, name) in enumerate(TRANSLATION_SERVICES.items()):
+            selected = provider == current
+            warning = "VR 성능 하락이 있을 수 있음" if provider == "local" else ""
+            button = ModelChoice(grid, f"●  {name}" if selected else name, MODEL_DESCRIPTIONS[provider],
+                                 lambda value=provider: self.select_service(value), selected, warning)
+            grid.columnconfigure(column, weight=1, uniform="models")
+            button.grid(row=0, column=column, sticky="ew", padx=(px(8) if column else 0, 0))
+            if first_control is None or selected:
+                first_control = button
+        self.service_notice = label(body, "", fg=MUTED, wrap=605)
+        self.service_notice.pack(anchor="w", pady=(px(15), px(6)))
+        if current == "luna":
+            self.service_notice.configure(text="ChatGPT에 로그인하면 OCR 텍스트를 GPT-6 Luna로 처리합니다.")
+            self.luna_settings(body)
+        elif current == "deepl":
+            self.api_settings(body)
+        elif current == "local":
+            self.local_settings(body)
+        else:
+            self.service_notice.configure(text="번역 모델을 정해주세요")
+        if self.dialog.winfo_ismapped():
+            first_control.focus_set()
+        return first_control
+
+    def select_service(self, provider):
+        if provider == self.translation_config[0]:
+            self.render_models()
+            return
+        try:
+            save_settings(translation_service=provider)
+        except OSError:
+            self.service_notice.configure(text="번역 모델 설정을 저장하지 못했습니다.")
+            return
+        self.translation_config = self.load_translation_config(load_settings())
+        self.refresh_model_labels()
+        self.render_models()
+        if provider == "luna":
+            self.check_luna("status", self.codex.status, "연결 확인 중")
+
+    @staticmethod
+    def load_translation_config(preferences):
+        provider = preferences.get("translation_service")
+        if not isinstance(provider, str) or provider not in TRANSLATION_SERVICES:
+            provider = ""
+        return provider, decrypt_key(preferences.get("deepl_api_key")) if provider == "deepl" else ""
+
+    def api_settings(self, body):
+        _, saved_key = self.translation_config
+        self.service_notice.configure(text="DeepL에서 발급받은 API 키를 입력하세요. Developer 키는 개인정보가 없는 텍스트에만 사용하세요.")
+        fields = tk.Frame(body, bg=WHITE)
+        fields.pack(fill="x")
+        label(fields, "DeepL API 키", size=9, fg=MUTED).pack(anchor="w")
+        key = tk.Entry(fields, show="•", bg=PAPER, relief="flat", highlightthickness=1,
+                       highlightbackground=LINE, highlightcolor=VIOLET)
+        key.pack(fill="x", ipady=px(5))
+
+        actions = tk.Frame(body, bg=WHITE)
+        actions.pack(fill="x", pady=(px(9), 0))
+        status = label(body, "API 키 저장됨" if saved_key else "", size=9, fg=MUTED)
+        status.pack(anchor="w", pady=(px(5), 0))
+
+        def save(remove=False):
+            secret = "" if remove else key.get().strip() or saved_key
+            if not remove and not re.fullmatch(r"[!-~]{1,256}", secret):
+                status.configure(text="API 키를 확인하세요.")
+                return
+            try:
+                save_settings(deepl_api_key=encrypt_key(secret) if secret else "")
+            except OSError:
+                status.configure(text="API 키를 저장하지 못했습니다.")
+                return
+            self.translation_config = "deepl", secret
+            self.render_models()
+
+        HoverButton(actions, "API 키 발급", lambda: webbrowser.open("https://www.deepl.com/en/developers"),
+                    PAPER, LAVENDER, INK, padding=(12, 6)).pack(side="left")
+        HoverButton(actions, "저장", save, VIOLET, "#4e009e", WHITE, padding=(14, 6)).pack(side="right")
+        if saved_key:
+            HoverButton(actions, "키 지우기", lambda: save(remove=True), PAPER, LAVENDER, INK,
+                        padding=(12, 6)).pack(side="right", padx=(0, px(6)))
+
+    def local_settings(self, body):
+        self.service_notice.configure(text="모델을 한 번 다운로드하면 로그인 없이 오프라인으로 번역합니다.")
+        ready = available(MODELS_DIR / "m2m100")
+        button = HoverButton(body, "모델 다운로드 · 약 473 MiB", self.start_model_download,
+                             VIOLET, "#4e009e", WHITE, padding=(14, 6))
+        if not ready:
+            button.pack(anchor="w")
+            button.configure(state="disabled" if self.local_downloading else "normal")
+        label(body, "다운로드 완료 · 오프라인 번역 가능" if ready else "",
+              variable=None if ready else self.local_status, fg=MUTED).pack(anchor="w", pady=(px(6), 0))
+
+    def start_model_download(self):
+        if self.local_downloading:
+            return
+        self.local_downloading = True
+        self.local_status.set("다운로드 준비 중")
+        self.render_models()
+
+        def run():
+            try:
+                download_model(MODELS_DIR / "m2m100", self.stop,
+                               lambda percent: self.events.put(("model-progress", percent)))
+                self.events.put(("model-finished", True))
+            except (OSError, ValueError):
+                self.events.put(("model-finished", False))
+
+        Thread(target=run, daemon=True).start()
+
+    def luna_settings(self, body):
+        label(body, variable=self.luna_status, fg=VIOLET, wrap=465).pack(anchor="w", pady=(px(11), px(9)))
+        actions = tk.Frame(body, bg=WHITE)
+        actions.pack(fill="x")
+        action = HoverButton(actions, "", self.toggle_luna, VIOLET, "#4e009e", WHITE,
+                             disabledforeground="#dfc9f5")
+        action.pack(side="left")
+        check = HoverButton(actions, "상태 확인", lambda: self.check_luna("status", self.codex.status, "연결 확인 중"),
+                            PAPER, LAVENDER, INK)
+        check.pack(side="left", padx=(px(8), 0))
+        self.luna_controls = action, check
+        self.render_luna()
 
     def render_startup(self):
         if self.startup_button is not None:
@@ -470,23 +805,17 @@ class ScannerWindow:
             self.events.put(("update", release))
 
     def show_update(self, release):
-        if self.update_popup is not None:
+        if self.dialog is not None:
+            if self.model_body is not None:
+                self.pending_update = release
             return
-        popup = self.update_popup = tk.Toplevel(self.root, bg=WHITE)
-        popup.title("LiDAR 업데이트")
-        popup.resizable(False, False)
-        popup.transient(self.root)
-        panel = tk.Frame(popup, bg=WHITE, padx=px(24), pady=px(21))
-        panel.pack(fill="both", expand=True)
-        label(panel, "새 업데이트가 있습니다", size=17, weight="bold").pack(anchor="w")
+
+        self.dialog = InAppDialog(self.viewport, "새 업데이트가 있습니다", lambda: defer.invoke())
+        panel = self.dialog.body
         caption = tk.StringVar(value=f"LiDAR {VERSION} → {release.version}")
-        label(panel, variable=caption, fg=MUTED).pack(anchor="w", pady=(px(7), px(15)))
+        label(panel, variable=caption, fg=MUTED, wrap=410).pack(anchor="w", pady=(px(7), px(15)))
         row = tk.Frame(panel, bg=WHITE)
         row.pack(fill="x")
-
-        def later():
-            self.update_popup = None
-            popup.destroy()
 
         def skip():
             try:
@@ -495,7 +824,7 @@ class ScannerWindow:
                 caption.set("건너뛸 버전을 저장하지 못했습니다.")
                 return
             self.skipped_version = release.version
-            later()
+            self.close_dialog()
 
         def download():
             for button in (install, bypass, defer):
@@ -513,7 +842,7 @@ class ScannerWindow:
 
         install = HoverButton(row, "지금 업데이트", download, VIOLET, "#4e009e", WHITE)
         bypass = HoverButton(row, "이번 버전 건너뛰기", skip, PAPER, LAVENDER, INK)
-        defer = HoverButton(row, "나중에", later, PAPER, LAVENDER, INK)
+        defer = HoverButton(row, "나중에", self.close_dialog, PAPER, LAVENDER, INK)
         for button in (install, bypass, defer):
             button.pack(side="left", padx=(0, px(7)))
 
@@ -524,19 +853,30 @@ class ScannerWindow:
                     button.configure(state="normal")
                 return
             self.update_installer = path
-            later()
+            self.close_dialog()
             self.close()
 
         self.update_progress = caption
         self.update_finished = finish
-        popup.protocol("WM_DELETE_WINDOW", lambda: defer.invoke())
-        popup.bind("<Escape>", lambda _: defer.invoke())
-        popup.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - popup.winfo_reqwidth()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - popup.winfo_reqheight()) // 2
-        popup.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        popup.grab_set()
-        install.focus_set()
+        self.dialog.open(install)
+
+    def show_installer_error(self):
+        self.dialog = InAppDialog(self.viewport, "LiDAR 업데이트", self.close_dialog)
+        panel = self.dialog.body
+        label(panel, "업데이트 설치 프로그램을 열지 못했습니다.", fg=MUTED).pack(anchor="w", pady=(px(8), px(15)))
+        button = HoverButton(panel, "닫기", self.close_dialog, PAPER, LAVENDER, INK, padding=(13, 6))
+        button.pack(anchor="e")
+        self.dialog.open(button)
+
+    def close_dialog(self):
+        dialog, self.dialog = self.dialog, None
+        if dialog is not None:
+            dialog.destroy()
+
+    def cycle_dialog_focus(self, _=None, *, reverse=False):
+        if self.dialog is not None:
+            self.dialog.cycle_focus(reverse)
+            return "break"
 
     def check_luna(self, operation, action, caption):
         if self.luna_operation:
@@ -560,7 +900,8 @@ class ScannerWindow:
             self.luna_status.set("로그인 취소 중")
             self.render_luna()
         elif self.luna_signed_in:
-            self.luna_enabled.clear()
+            self.luna_effort = None
+            self.luna_fallback = None
             self.check_luna("logout", self.codex.logout, "연결 해제 중")
         else:
             self.login_cancel.clear()
@@ -604,6 +945,7 @@ class ScannerWindow:
                 return
             self.target = draft
             self.target_label.set(LANGUAGES[draft])
+            self.refresh_model_labels()
             self.show(self.language_back)
 
         HoverButton(footer, "적용", apply, VIOLET, "#4e009e", WHITE).pack(side="right")
@@ -663,6 +1005,9 @@ class ScannerWindow:
         self.root.after_idle(lambda: selected.focus_set() if selected.winfo_exists() else None)
 
     def dismiss_settings(self, _):
+        if self.dialog is not None:
+            self.dialog.dismiss()
+            return "break"
         if self.current_page == "languages":
             self.show(self.language_back)
             return "break"
@@ -683,13 +1028,39 @@ class ScannerWindow:
         watch_sessions(self.stop, lambda msg: self.events.put(("status", msg)),
                        lambda *values: self.events.put(("result", values)),
                        lambda connected: self.events.put(("connection", connected)),
-                       target_language=lambda: self.target, cloud_translate=self.translate_with_luna,
-                       sync_startup=self.startup.sync)
+                       target_language=lambda: self.target, cloud_translate=self.translate_text,
+                       sync_startup=self.startup.sync,
+                       options=lambda: (self.features, self.translation_config[0]))
 
-    def translate_with_luna(self, source, target_language):
-        if self.luna_enabled.is_set() and not self.stop.is_set():
-            return self.codex.translate(source, target_language)
-        return None
+    def translate_text(self, source, target, local):
+        provider, key = self.translation_config
+        if self.stop.is_set() or "translation" not in self.features:
+            return None
+        if not provider:
+            raise TranslationError("번역 모델을 정해주세요")
+        if provider == "local":
+            return local(), "Local"
+        if provider == "luna":
+            effort = self.luna_effort
+            if not effort:
+                raise TranslationError("설정에서 ChatGPT를 연결하세요")
+            try:
+                return self.run_luna(self.codex.translate, source, LANGUAGES[target], effort), "Luna"
+            except (CodexError, OSError, KeyError, TypeError, ValueError):
+                raise TranslationError("Luna에 연결하지 못했습니다") from None
+        if not key:
+            raise TranslationError("설정에 DeepL API 키를 입력하세요")
+        return translate(key, source, target), "DeepL"
+
+    def run_luna(self, operation, source, target, effort):
+        fallback = self.luna_fallback
+        try:
+            return operation(source, target, effort)
+        except UnsupportedReasoning:
+            if effort != "none" or fallback != "low":
+                raise
+            self.events.put(("luna-effort", fallback))
+            return operation(source, target, fallback)
 
     def refresh(self):
         try:
@@ -705,23 +1076,34 @@ class ScannerWindow:
                     if mode != "QR":
                         self.latest_text = source, output
                         target, provider = details
-                        caption = f"{LANGUAGES[target]} 결과" if mode == "AI 번역" else "인식 결과"
-                        self.result_label.set(f"{caption} · Luna" if provider == "Luna" else caption)
+                        caption = f"{LANGUAGES[target]} 결과" if mode == "AI 번역" else mode if mode == "AI 어시스턴트" else "인식 결과"
+                        self.result_label.set(f"{caption} · {provider}" if provider else caption)
                         self.render_translation()
                 elif kind == "luna":
                     self.luna_operation = None
                     if isinstance(value, str):
                         self.luna_status.set(value)
                     else:
-                        self.luna_signed_in, available = value
-                        if available:
-                            self.luna_enabled.set()
-                            self.luna_status.set("연결됨 · Luna 사용 중")
+                        self.luna_signed_in, efforts = value
+                        self.luna_effort = efforts[0] if efforts else None
+                        self.luna_fallback = "low" if "low" in efforts else None
+                        if efforts:
+                            self.luna_status.set("연결됨 · GPT-6 Luna · 추론 없음 (none)")
                         else:
-                            self.luna_enabled.clear()
-                            self.luna_status.set("연결됨 · 이 계정에서 Luna를 사용할 수 없습니다."
-                                                 if self.luna_signed_in else "연결 안 됨 · PC 번역 사용 중")
+                            self.luna_status.set("연결됨 · GPT-6 Luna의 빠른 추론 설정을 확인할 수 없습니다."
+                                                 if self.luna_signed_in else "ChatGPT 연결 안 됨")
                     self.render_luna()
+                elif kind == "luna-effort":
+                    if self.luna_effort == "none" and self.luna_fallback == value:
+                        self.luna_effort = value
+                        self.luna_status.set("연결됨 · GPT-6 Luna · 추론 낮음 (low)")
+                elif kind == "model-progress":
+                    self.local_status.set(f"다운로드 중 · {value}%")
+                elif kind == "model-finished":
+                    self.local_downloading = False
+                    self.local_status.set("" if value else "다운로드에 실패했습니다. 다시 시도하세요.")
+                    if self.translation_config[0] == "local":
+                        self.render_models()
                 elif kind == "startup":
                     desired, status = value
                     if desired == self.startup_preference:
@@ -736,7 +1118,7 @@ class ScannerWindow:
                         return
                 elif kind == "connection":
                     self.connection.set("SteamVR 연결됨" if value else "SteamVR 연결 안 됨")
-                    self.scan_state.set("스캔 대기" if value else "대기 중")
+                    self.scan_state.set(("스캔 대기" if value else "대기 중") if "qr" in self.features else "꺼짐")
                     self.status.set("제스처를 기다리고 있습니다" if value else "")
                 else:
                     self.status.set(self.summary(value))
@@ -745,7 +1127,8 @@ class ScannerWindow:
                         state = "조준 중"
                     elif value.startswith(("QR 인식 ·", "텍스트 인식 및")):
                         state = "인식 중"
-                    self.scan_state.set(state)
+                    if "qr" in self.features:
+                        self.scan_state.set(state)
         except Empty:
             pass
         self.refresh_job = self.root.after(70, self.refresh)
@@ -760,9 +1143,7 @@ class ScannerWindow:
         if self.refresh_job is not None:
             self.root.after_cancel(self.refresh_job)
             self.refresh_job = None
-        if self.transition_job is not None:
-            self.root.after_cancel(self.transition_job)
-            self.transition_job = None
+        self.page_motion.cancel()
         if self.worker.is_alive():
             self.root.withdraw()
             self.root.after(30, self.close)
@@ -778,24 +1159,31 @@ def main():
     kernel.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p)
     kernel.CreateMutexW.restype = ctypes.c_void_p
     kernel.CloseHandle.argtypes = (ctypes.c_void_p,)
-    instance = kernel.CreateMutexW(None, 0, r"Local\LiDAR_0E19C5A3_A965_496D_AC19_92666A80AB6D")
-    if instance and ctypes.get_last_error() == 183:
-        kernel.CloseHandle(instance)
-        return
-    prepare_desktop()
-    root = tk.Tk()
-    configure_scale(root)
-    app = ScannerWindow(root)
-    try:
-        root.mainloop()
-    finally:
-        if instance:
+    installer_error = False
+    while True:
+        instance = kernel.CreateMutexW(None, 0, r"Local\LiDAR_0E19C5A3_A965_496D_AC19_92666A80AB6D")
+        if instance and ctypes.get_last_error() == 183:
             kernel.CloseHandle(instance)
-    if app.update_installer:
+            return
+        try:
+            prepare_desktop()
+            root = tk.Tk()
+            configure_scale(root)
+            app = ScannerWindow(root)
+            if installer_error:
+                root.after_idle(app.show_installer_error)
+            root.mainloop()
+        finally:
+            if instance:
+                kernel.CloseHandle(instance)
+        if not app.update_installer:
+            return
         try:
             subprocess.Popen([str(app.update_installer)], cwd=app.update_installer.parent)
         except OSError:
-            messagebox.showerror("LiDAR", "업데이트 설치 프로그램을 열지 못했습니다.")
+            installer_error = True
+        else:
+            return
 
 
 if __name__ == "__main__":

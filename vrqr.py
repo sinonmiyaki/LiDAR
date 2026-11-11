@@ -105,7 +105,7 @@ def closest_code(capture, bounds, projections):
     return best, False
 
 
-def scan(system, mirror, window, head, full_fallback=True, text_frames=None):
+def scan(system, mirror, window, head, full_fallback=True, text_frames=None, detect_qr=True):
     areas = []
     for eye in (vr.Eye_Left, vr.Eye_Right):
         projections = project_window(system, eye, window, head)
@@ -120,7 +120,7 @@ def scan(system, mirror, window, head, full_fallback=True, text_frames=None):
     # The larger read can recover a code whose outer edge or quiet zone was
     # cropped. Its center still has to be inside the projected scan window.
     full = (0.0, 0.0, 1.0, 1.0)
-    if full_fallback:
+    if full_fallback and detect_qr:
         areas += [(eye, full, projections) for eye, bounds, projections in areas if bounds != full]
 
     captured_frame = False
@@ -133,10 +133,11 @@ def scan(system, mirror, window, head, full_fallback=True, text_frames=None):
             capture_error = error
             continue
         captured_frame = True
-        code, tied = closest_code(capture, bounds, projections)
-        ambiguous |= tied
-        if code is not None:
-            return code.text, qr_photo(capture, code)
+        if detect_qr:
+            code, tied = closest_code(capture, bounds, projections)
+            ambiguous |= tied
+            if code is not None:
+                return code.text, qr_photo(capture, code)
         if text_frames is not None and index < local_count:
             text_frames.append((capture, bounds, projections))
     if not captured_frame:
@@ -245,8 +246,13 @@ def open_result(url, activate=False):
     return f"PC 브라우저에서 열었습니다 · {url}"
 
 
+def default_options():
+    return frozenset(("qr", "translation")), ""
+
+
 def run_loop(system, api, handle, result, mirror, stop, report, camera, publish, executor,
-             target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None):
+             target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None,
+             options=default_options, assist=None):
     event = vr.VREvent_t()
     gesture = Gesture()
     miss_until = 0.0
@@ -263,6 +269,7 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
     text_job = None
     text_overlay = None
     next_connection_check = 0.0
+    last_options = options()
 
     while not stop.is_set():
         while system.pollNextEvent(event):
@@ -277,6 +284,34 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                 return
             next_connection_check = now + 0.75
         dashboard_visible = api.isDashboardVisible()
+
+        current_options = options()
+        enabled, model = current_options
+        if current_options != last_options:
+            _, previous_model = last_options
+            if text_job is not None:
+                text_job.cancel()
+                text_job = None
+            if previous_model == "local" and (model != "local" or "translation" not in enabled):
+                executor.submit(reader.release_model)
+            if animation is not None or text_overlay is not None:
+                api.hideOverlay(result)
+            if shown_guide is not None:
+                api.hideOverlay(handle)
+            gesture, axes, window, released_hit = Gesture(), None, None, None
+            animation, text_overlay, shown_guide = None, None, None
+            text_frames.clear()
+            miss_until = result_until = 0.0
+            last_options = current_options
+        if not enabled:
+            status = "대시보드에서 스캔 기능을 켜세요"
+            if status != previous_status:
+                report(status)
+                previous_status = status
+            stop.wait(0.1)
+            continue
+        detect_qr = "qr" in enabled
+        read_text = bool(enabled & {"translation", "assistant"})
 
         if animation is not None:
             if not animation.tick(now):
@@ -301,11 +336,9 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                     miss_until = now + 0.55
                 else:
                     text_overlay = TextOverlay(api, result, text)
-                    kind = "AI 번역" if text.translated else "텍스트"
+                    kind = "AI 어시스턴트" if text.assisted else "AI 번역" if text.translated else "텍스트"
                     publish(kind, text.source, text.output, text.target, text.provider)
-                    result_message = f"{kind} 완료"
-                    if text.provider == "Luna 연결 실패":
-                        result_message = f"{text.provider} · PC에서 처리"
+                    result_message = text.notice or f"{kind} 완료"
             except Exception as error:
                 result_message = f"텍스트 처리 오류 · {error}"
             result_until = now + 3.0
@@ -340,14 +373,17 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
             # while the QR is still in view. Confirm release before acting.
             text_frames = []
             try:
-                released_hit = scan(system, mirror, window, frame.head, text_frames=text_frames)
+                released_hit = scan(system, mirror, window, frame.head,
+                                    text_frames=text_frames if read_text else None, detect_qr=detect_qr)
             except (vr.error_code.OpenVRError, OSError, RuntimeError, ValueError):
                 released_hit = None
         elif action == "scan":
             api.hideOverlay(handle)
             shown_guide = None
             try:
-                hit = released_hit or scan(system, mirror, window, frame.head, full_fallback=False)
+                hit = released_hit
+                if hit is None and detect_qr:
+                    hit = scan(system, mirror, window, frame.head, full_fallback=False)
                 if hit is not None:
                     payload, photo = hit
                     text_frames.clear()
@@ -355,11 +391,13 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
                     report("QR 인식 · 캡처 표시 중")
                     continue
                 if text_frames:
-                    text_job = executor.submit(reader.read, tuple(text_frames), target_language(), cloud_translate)
+                    translate_text = cloud_translate if "translation" in enabled else None
+                    assist_text = assist if "assistant" in enabled else None
+                    text_job = executor.submit(reader.read, tuple(text_frames), target_language(), translate_text, assist_text)
                     text_frames.clear()
                     report("텍스트 인식 및 번역 중")
                     continue
-                result_message = "손 사이 창에서 QR을 읽지 못했습니다"
+                result_message = "손 사이 창에서 QR이나 텍스트를 읽지 못했습니다" if read_text else "손 사이 창에서 QR을 읽지 못했습니다"
             except (vr.error_code.OpenVRError, OSError, RuntimeError, ValueError) as error:
                 result_message = f"스캔 오류 · {error}"
             result_until = time.monotonic() + 3.0
@@ -400,7 +438,8 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
 
 
 def run_session(stop, report, publish=lambda *_: None, probe=False, connection=lambda _: None,
-                target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None):
+                target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None,
+                options=default_options, assist=None):
     if not vr.isHmdPresent():
         raise RuntimeError("헤드셋을 연결하고 SteamVR을 실행하세요.")
 
@@ -427,7 +466,7 @@ def run_session(stop, report, publish=lambda *_: None, probe=False, connection=l
             connection(True)
             try:
                 run_loop(system, api, handle, result, mirror, stop, report, camera, publish, executor,
-                         target_language, cloud_translate, sync_startup)
+                         target_language, cloud_translate, sync_startup, options, assist)
             finally:
                 if not stop.is_set():
                     connection(False)
@@ -448,7 +487,7 @@ def steamvr_ready(sync_startup=lambda: None):
 
 
 def watch_sessions(stop, report, publish, connection, target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None,
-                   sync_startup=lambda: None):
+                   sync_startup=lambda: None, options=default_options, assist=None):
     connected = None
 
     def update(value):
@@ -461,7 +500,7 @@ def watch_sessions(stop, report, publish, connection, target_language=lambda: DE
         try:
             if steamvr_ready(sync_startup) and not stop.is_set():
                 run_session(stop, report, publish, connection=update, target_language=target_language,
-                            cloud_translate=cloud_translate, sync_startup=sync_startup)
+                            cloud_translate=cloud_translate, sync_startup=sync_startup, options=options, assist=assist)
         except (vr.error_code.OpenVRError, OSError, RuntimeError):
             # SteamVR and its overlays can disappear during a headset or runtime restart.
             pass

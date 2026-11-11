@@ -1,27 +1,7 @@
 {
-  "m2m100/README.md": {
-    "url": "https://huggingface.co/VoragoStudios/gct-m2m100-418m-ct2/resolve/09bd1aceee8a638b4e102bded4dfb8dbf20af4bd/README.md",
-    "sha256": "cd2f5e68e6c1df8b451c10c394d4a724c12854e93769d4237475d802130a7485"
-  },
-  "m2m100/config.json": {
-    "url": "https://huggingface.co/VoragoStudios/gct-m2m100-418m-ct2/resolve/09bd1aceee8a638b4e102bded4dfb8dbf20af4bd/config.json",
-    "sha256": "72901fbd8abd89fb5cf4a388f26fc681f5c4c58a1e1a88b30b879f107270e7ee"
-  },
-  "m2m100/lid.176.ftz": {
+  "lid.176.ftz": {
     "url": "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz",
     "sha256": "8f3472cfe8738a7b6099e8e999c3cbfae0dcd15696aac7d7738a8039db603e83"
-  },
-  "m2m100/model.bin": {
-    "url": "https://huggingface.co/VoragoStudios/gct-m2m100-418m-ct2/resolve/09bd1aceee8a638b4e102bded4dfb8dbf20af4bd/model.bin",
-    "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b"
-  },
-  "m2m100/sentencepiece.bpe.model": {
-    "url": "https://huggingface.co/VoragoStudios/gct-m2m100-418m-ct2/resolve/09bd1aceee8a638b4e102bded4dfb8dbf20af4bd/sentencepiece.bpe.model",
-    "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a"
-  },
-  "m2m100/shared_vocabulary.json": {
-    "url": "https://huggingface.co/VoragoStudios/gct-m2m100-418m-ct2/resolve/09bd1aceee8a638b4e102bded4dfb8dbf20af4bd/shared_vocabulary.json",
-    "sha256": "18916ac68f9ac8fbd5250ca603dcb3861aac8672924d93a8dadc82eb3147f941"
   },
   "ocr/arabic.onnx": {
     "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/arabic_PP-OCRv5_rec_mobile.onnx",
