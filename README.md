@@ -66,7 +66,7 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt pyinstaller==6.20.0
 .\.venv\Scripts\python fetch_models.py
 .\.venv\Scripts\python -m PyInstaller --noconfirm LiDAR.spec
-ISCC.exe /DAppVersion=0.2.3 installer.iss
+ISCC.exe /DAppVersion=0.2.4 installer.iss
 ```
 
 Inno Setup의 `Output` 폴더에 생성된 설치 파일을 같은 버전의 GitHub Release에 첨부합니다.
