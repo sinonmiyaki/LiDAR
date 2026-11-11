@@ -21,7 +21,7 @@ from i18n import Message, UI_LANGUAGES, get_locale, set_locale, tr
 from vrqr import open_result, watch_sessions, web_url
 from languages import LANGUAGES, TARGET_LANGUAGES, load_settings, load_target, save_settings, save_target
 from local_model import MODELS_DIR, available, download_model
-from steam_startup import MANIFEST, SteamStartup, unregister
+from steam_startup import MANIFEST, SteamStartup, unregister, watch_runtime
 from translation_api import TranslationError, decrypt_key, encrypt_key, translate
 from typography import FAMILY, SEMIBOLD, configure_scale, prepare_desktop, px, set_titlebar_theme
 from tray import TrayIcon, show_existing
@@ -558,6 +558,8 @@ class ScannerWindow:
         root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.worker = Thread(target=self.scan, daemon=True)
         self.worker.start()
+        Thread(target=watch_runtime, args=(self.stop, lambda: self.events.put(("quit", None))),
+               daemon=True, name="steamvr-lifecycle").start()
         self.refresh_job = root.after(70, self.refresh)
         if self.translation_config[0] == "luna":
             self.check_luna("status", self.codex.status, "연결 확인 중")
@@ -1426,10 +1428,10 @@ class ScannerWindow:
                     self.update_finished(value)
                     if self.stop.is_set():
                         return
+                elif kind == "quit" or (kind == "tray" and value == "quit"):
+                    self.close()
+                    return
                 elif kind == "tray":
-                    if value == "quit":
-                        self.close()
-                        return
                     self.restore_window()
                 elif kind == "connection":
                     self.connection.set("SteamVR 연결됨" if value else "SteamVR 연결 안 됨")

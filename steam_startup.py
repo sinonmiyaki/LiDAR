@@ -1,14 +1,40 @@
-"""Register the installed LiDAR executable as a SteamVR startup overlay."""
+"""Register LiDAR for SteamVR startup and monitor the Windows VR runtime."""
 
 from pathlib import Path
 import sys
 import time
 
 import openvr as vr
+import psutil
 
 
 APP_KEY = "local.vrqr.scanner"
 MANIFEST = Path(sys.executable).with_name("LiDAR.vrmanifest")
+
+
+def watch_runtime(stop, on_exit):
+    seen_running = False
+    missing_checks = 0
+    while not stop.is_set():
+        # Refresh names across SteamVR restarts, even when Windows reuses a PID.
+        psutil.process_iter.cache_clear()
+        try:
+            running = any((process.info.get("name") or "").casefold() == "vrserver.exe"
+                          for process in psutil.process_iter(["name"]))
+        except psutil.Error:
+            missing_checks = 0
+            stop.wait(1.0)
+            continue
+        if running:
+            seen_running = True
+            missing_checks = 0
+        elif seen_running:
+            missing_checks += 1
+            if missing_checks == 2:
+                if not stop.is_set():
+                    on_exit()
+                return
+        stop.wait(1.0)
 
 
 def set_startup(enabled):

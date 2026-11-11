@@ -55,6 +55,7 @@
 ## 자동 실행과 업데이트
 
 - 첫 실행에서 **SteamVR 자동 실행**을 선택할 수 있습니다. SteamVR이 꺼져 있으면 두 프로그램이 함께 실행되는 시점에 등록합니다. **설정**에서 자동 실행과 다크 모드를 각각 변경할 수 있습니다.
+- SteamVR이 종료되면 알림 영역에 있는 LiDAR도 함께 종료됩니다. SteamVR을 아직 켜지 않았다면 LiDAR는 연결을 기다립니다.
 - 새 버전이 있으면 LiDAR 창 안에 알림이 표시됩니다. **지금 업데이트**는 다운로드와 검증 후 설치 프로그램을 열고, **이번 버전 건너뛰기**는 해당 버전의 알림을 숨깁니다. **나중에**를 선택하면 다음 실행 때 다시 확인합니다.
 
 ## Windows 빌드
@@ -68,7 +69,7 @@ python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt pyinstaller==6.20.0
 .\.venv\Scripts\python fetch_models.py
 .\.venv\Scripts\python -m PyInstaller --noconfirm LiDAR.spec
-ISCC.exe /DAppVersion=0.2.6 installer.iss
+ISCC.exe /DAppVersion=0.2.7 installer.iss
 ```
 
 Inno Setup의 `Output` 폴더에 생성된 설치 파일을 같은 버전의 GitHub Release에 첨부합니다.
