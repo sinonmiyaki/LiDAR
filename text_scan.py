@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import lru_cache
+from itertools import groupby
 import os
 from pathlib import Path
 import re
@@ -11,7 +13,7 @@ from i18n import get_locale, tr
 from languages import DEFAULT_LANGUAGE, LANGUAGES
 from local_model import MODELS_DIR, available
 from translation_api import TranslationError
-from typography import FONT_DIR
+from typography import FONT_DIR, LOCALIZED_FONTS
 
 
 SCRIPT_MODELS = {
@@ -22,6 +24,7 @@ SCRIPT_MODELS = {
     "el": re.compile(r"[\u0370-\u03ff\u1f00-\u1fff]"),
     "devanagari": re.compile(r"[\u0900-\u097f]"),
 }
+SCRIPT_SCORE_MARGIN = 0.025
 
 
 @dataclass(frozen=True)
@@ -45,34 +48,37 @@ class TextReader:
         self.translator = None
         self.tokenizer = None
 
-    def read(self, frames, target=DEFAULT_LANGUAGE, cloud_translate=None, assist=None):
+    def recognize(self, frames):
         for capture, bounds, projections in frames:
             source = self.read_frame(capture, bounds, projections)
             if source:
-                lines = source.splitlines()
-                languages = [self.source_language(line) for line in lines]
-                distinct = set(languages) - {""}
-                language = next(iter(distinct)) if len(distinct) == 1 else ""
-                needs_translation = any(code != target and any(char.isalpha() for char in line)
-                                        for line, code in zip(lines, languages))
-                notice = ""
-                if assist:
-                    try:
-                        answer = assist(source, target)
-                        if answer:
-                            return TextResult(source, answer, language, False, target, "Luna", assisted=True)
-                    except TranslationError as error:
-                        notice = str(error)
-                if needs_translation and cloud_translate:
-                    try:
-                        translated = cloud_translate(source, target, lambda: self.translate_local(lines, languages, target))
-                        if translated:
-                            output, provider = translated
-                            return TextResult(source, output, language, True, target, provider, notice)
-                    except TranslationError as error:
-                        notice = str(error)
-                return TextResult(source, source, language, False, target, notice=notice)
+                return source
         return None
+
+    def process(self, source, target, cloud_translate, assist):
+        lines = source.splitlines()
+        languages = [self.source_language(line) for line in lines]
+        distinct = set(languages) - {""}
+        language = next(iter(distinct)) if len(distinct) == 1 else ""
+        needs_translation = any(code != target and any(char.isalpha() for char in line)
+                                for line, code in zip(lines, languages))
+        notice = ""
+        if assist:
+            try:
+                answer = assist(source, target)
+                if answer:
+                    return TextResult(source, answer, language, False, target, "Luna", assisted=True)
+            except TranslationError as error:
+                notice = str(error)
+        if needs_translation and cloud_translate:
+            try:
+                translated = cloud_translate(source, target, lambda: self.translate_local(lines, languages, target))
+                if translated:
+                    output, provider = translated
+                    return TextResult(source, output, language, True, target, provider, notice)
+            except TranslationError as error:
+                notice = str(error)
+        return TextResult(source, source, language, False, target, notice=notice)
 
     def source_language(self, text):
         if not any(char.isalpha() for char in text):
@@ -130,8 +136,11 @@ class TextReader:
         import zxingcpp as qr
 
         if self.ocr is None:
+            import cv2
             from rapidocr import RapidOCR
 
+            # Keep the image preprocessing pool small while SteamVR is rendering.
+            cv2.setNumThreads(1)
             self.ocr = RapidOCR(params={
                 "Global.text_score": 0.58,
                 "Global.use_cls": False,
@@ -169,6 +178,11 @@ class TextReader:
         from rapidocr.ch_ppocr_rec.typings import TextRecInput
 
         for script, letters in SCRIPT_MODELS.items():
+            # Confidence is capped at 1.0. If no line can be improved by the
+            # required margin, the remaining models cannot change the result.
+            if all(confidence > 1.0 - SCRIPT_SCORE_MARGIN and any(char.isalnum() for char in text)
+                   for text, confidence in lines):
+                break
             if script not in self.recognizers:
                 config = deepcopy(self.ocr.cfg.Rec)
                 config.model_path = str(self.models / "ocr" / f"{script}.onnx")
@@ -180,7 +194,7 @@ class TextReader:
                 previous, confidence = lines[index]
                 if not any(char.isalnum() for char in previous):
                     confidence = 0.0
-                if (score >= max(0.72, confidence + 0.025) and script_count >= 2
+                if (score >= max(0.72, confidence + SCRIPT_SCORE_MARGIN) and script_count >= 2
                         and script_count * 2 >= sum(char.isalpha() for char in text)):
                     lines[index] = text, score
 
@@ -189,9 +203,14 @@ def wrap_text(text, font, max_width):
     for paragraph in text.splitlines():
         remaining = " ".join(paragraph.split())
         while remaining:
-            end = 1
-            while end < len(remaining) and font.getlength(remaining[:end + 1]) <= max_width:
-                end += 1
+            low, high = 1, len(remaining)
+            while low < high:
+                middle = (low + high + 1) // 2
+                if font.getlength(remaining[:middle]) <= max_width:
+                    low = middle
+                else:
+                    high = middle - 1
+            end = low
             if end < len(remaining) and " " in remaining[:end + 1]:
                 end = remaining.rfind(" ", 0, end + 1)
             lines.append(remaining[:end].rstrip())
@@ -199,23 +218,99 @@ def wrap_text(text, font, max_width):
     return lines
 
 
-def text_card(result):
-    from PIL import Image, ImageDraw, ImageFont
+@lru_cache(maxsize=24)
+def overlay_font(language, size, semibold=False):
+    from PIL import ImageFont
 
+    if language in LOCALIZED_FONTS:
+        path = FONT_DIR / LOCALIZED_FONTS[language][0]
+        if path.is_file():
+            return ImageFont.truetype(str(path), size, index=1 if semibold else 0)
     system_faces = {"ja": "meiryo.ttc", "zh": "msyh.ttc", "ru": "segoeui.ttf", "uk": "segoeui.ttf", "el": "segoeui.ttf"}
     windows_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
-    locale = get_locale()
-    heading_path = windows_fonts / system_faces[locale] if locale in system_faces else None
-    if heading_path is None or not heading_path.is_file():
-        heading_path = FONT_DIR / "Pretendard-SemiBold.ttf"
-    heading = ImageFont.truetype(str(heading_path), 29)
-    font_path = FONT_DIR / "Pretendard-Regular.ttf"
-    language = result.target if result.translated or result.assisted else result.language
     if language in system_faces:
         system_font = windows_fonts / system_faces[language]
         if system_font.is_file():
-            font_path = system_font
-    body = ImageFont.truetype(str(font_path), 43)
+            return ImageFont.truetype(str(system_font), size)
+    fallback = "Pretendard-SemiBold.ttf" if semibold else "Pretendard-Regular.ttf"
+    return ImageFont.truetype(str(FONT_DIR / fallback), size)
+
+
+WINDOWS_FONTS = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+CJK = re.compile(r"[\u1100-\u11ff\u3000-\u31ff\u3400-\u9fff\uac00-\ud7ff\uf900-\ufaff\U00020000-\U000323af]")
+
+
+@lru_cache(maxsize=48)
+def system_face(name, size):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.truetype(str(WINDOWS_FONTS / name), size)
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=4096)
+def cjk_face(char, primary, language, size):
+    def glyph(font, value):
+        mask = font.getmask(value, mode="L")
+        return mask.size, bytes(mask)
+
+    if glyph(primary, char) != glyph(primary, "\U0010ffff"):
+        return primary
+    local = {"ja": "meiryo.ttc", "zh": "msyh.ttc", "ko": "malgun.ttf"}.get(language, "malgun.ttf")
+    for locale in ("zh", "ja") if language == "zh" else ("ja", "zh"):
+        font = overlay_font(locale, size)
+        if font is not primary and glyph(font, char) != glyph(font, "\U0010ffff"):
+            return font
+    for name in dict.fromkeys((local, "malgun.ttf", "msyh.ttc", "meiryo.ttc", "mingliub.ttc", "simsun.ttc", "SimsunExtG.ttf")):
+        font = system_face(name, size)
+        if font is not None and glyph(font, char) != glyph(font, "\U0010ffff"):
+            return font
+    return primary
+
+
+class OverlayText:
+    def __init__(self, language, size, semibold=False):
+        self.language, self.size = language, size
+        self.primary = overlay_font(language, size, semibold)
+
+    def runs(self, text):
+        def choose(char):
+            if CJK.fullmatch(char):
+                return cjk_face(char, self.primary, self.language, self.size)
+            return self.primary
+
+        return [(font, "".join(chars)) for font, chars in groupby(text, choose)]
+
+    def getlength(self, text):
+        return sum(font.getlength(part) for font, part in self.runs(text))
+
+    @staticmethod
+    def ink_bounds(runs):
+        bounds = [font.getbbox(part, anchor="ls") for font, part in runs]
+        return min((box[1] for box in bounds), default=0), max((box[3] for box in bounds), default=0)
+
+    def height(self, text):
+        top, bottom = self.ink_bounds(self.runs(text))
+        return bottom - top
+
+    def paint(self, draw, xy, text, color):
+        x, y = xy
+        runs = self.runs(text)
+        top, _ = self.ink_bounds(runs)
+        for font, part in runs:
+            draw.text((x, y - top), part, anchor="ls", font=font, fill=color)
+            x += font.getlength(part)
+
+
+def text_card(result):
+    from PIL import Image, ImageDraw
+
+    locale = get_locale()
+    heading = overlay_font(locale, 29, semibold=True)
+    language = result.target if result.translated or result.assisted else result.language
+    body = OverlayText(language, 43)
     width, gutter, leading = 1040, 55, 63
     max_width = width - 2 * gutter
     lines = wrap_text(result.output, body, max_width)
@@ -245,5 +340,5 @@ def text_card(result):
         label = label.rstrip() + "…"
     draw.text((gutter + 22, 41), label, anchor="lt", font=heading, fill="#e7d6ff")
     for index, line in enumerate(lines):
-        draw.text((gutter, 103 + leading * index), line, anchor="lt", font=body, fill="white")
+        body.paint(draw, (gutter, 103 + leading * index), line, "white")
     return image.tobytes(), width, height

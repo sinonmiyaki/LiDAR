@@ -1,8 +1,10 @@
 """LiDAR desktop workspace for SteamVR scanning."""
 
+from collections import deque
 import ctypes
 from dataclasses import dataclass
 from functools import lru_cache
+from math import cos, tau
 from queue import Empty, SimpleQueue
 from pathlib import Path
 import re
@@ -16,14 +18,17 @@ import webbrowser
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageGrab, ImageOps, ImageTk
 
-from codex_bridge import CodexBridge, CodexError, UnsupportedReasoning
+from assistant import AssistantConfig
+from codex_bridge import CodexBridge, CodexError, REASONING_EFFORTS, UnsupportedReasoning
 from i18n import Message, UI_LANGUAGES, get_locale, set_locale, tr
 from vrqr import open_result, watch_sessions, web_url
 from languages import LANGUAGES, TARGET_LANGUAGES, load_settings, load_target, save_settings, save_target
 from local_model import MODELS_DIR, available, download_model
+from speech import (DEFAULT_THRESHOLD, MAX_THRESHOLD, MIN_THRESHOLD, SpeechError, calibrated_threshold,
+                    input_devices, measure_microphone)
 from steam_startup import MANIFEST, SteamStartup, unregister, watch_runtime
 from translation_api import TranslationError, decrypt_key, encrypt_key, translate
-from typography import FAMILY, SEMIBOLD, configure_scale, prepare_desktop, px, set_titlebar_theme
+from typography import configure_scale, prepare_desktop, px, set_titlebar_theme, ui_font
 from tray import TrayIcon, show_existing
 from updater import VERSION, download_installer, latest_release
 
@@ -58,8 +63,7 @@ MODEL_DESCRIPTIONS = {
     "deepl": "DeepL API 키로 연결해 온라인으로 번역합니다.",
     "local": "모델을 다운로드한 뒤 오프라인으로 번역합니다.",
 }
-FEATURES = {"qr", "translation"}
-WINDOWS_TIMER = ctypes.WinDLL("winmm.dll") if sys.platform == "win32" else None
+FEATURES = {"qr", "translation", "assistant"}
 
 
 def palette_for(widget):
@@ -68,7 +72,7 @@ def palette_for(widget):
 
 def label(parent, text="", *, variable=None, size=10, weight="normal", fg=None, bg=None, wrap=0):
     options = {"textvariable": variable} if variable is not None else {"text": tr(text)}
-    font = (SEMIBOLD, size) if weight == "semibold" else (FAMILY, size, weight)
+    font = ui_font(size, weight)
     return tk.Label(parent, **options, font=font, fg=fg or palette_for(parent).ink,
                     bg=bg or parent["bg"], anchor="w", justify="left", wraplength=px(wrap))
 
@@ -85,7 +89,9 @@ class DisplayVar(tk.StringVar):
 
     def relocalize(self):
         text = tr(self.message)
-        super().set(self.formatter(text) if self.formatter else text)
+        text = self.formatter(text) if self.formatter else text
+        if self.get() != text:
+            super().set(text)
 
 
 def blend_color(start, end, progress):
@@ -132,44 +138,57 @@ class RoundedShape:
             inner = Image.new("RGBA", (width, height), self.fill)
             inner.putalpha(rounded_mask(width, height, radius, 1))
             image = Image.alpha_composite(image, inner)
-        self.image = ImageTk.PhotoImage(image, master=self.canvas)
-        self.canvas.itemconfigure(self.item, image=self.image)
+        if self.image is not None and (self.image.width(), self.image.height()) == self.geometry:
+            self.image.paste(image)
+        else:
+            self.image = ImageTk.PhotoImage(image, master=self.canvas)
+            self.canvas.itemconfigure(self.item, image=self.image)
+
+
+class MotionClock:
+    def __init__(self, root):
+        self.root = root
+        self.active = {}
+        self.job = None
+
+    def schedule(self):
+        if self.active and self.job is None:
+            self.job = self.root.after(15, self.tick)
+
+    def tick(self):
+        self.job = None
+        now = perf_counter()
+        for motion, (started, duration, draw) in tuple(self.active.items()):
+            if motion not in self.active:
+                continue
+            fraction = min((now - started) / duration, 1)
+            if fraction == 1:
+                self.active.pop(motion)
+            draw(fraction * fraction * (3 - 2 * fraction))
+        self.schedule()
+
+    def remove(self, motion):
+        self.active.pop(motion, None)
+        if not self.active and self.job is not None:
+            self.root.after_cancel(self.job)
+            self.job = None
 
 
 class Motion:
     def __init__(self, widget):
-        self.widget = widget
-        self.job = None
-        self.timer_requested = False
+        root = widget.winfo_toplevel()
+        if not hasattr(root, "motion_clock"):
+            root.motion_clock = MotionClock(root)
+        self.clock = root.motion_clock
 
     def start(self, duration, draw):
         self.cancel()
-        if WINDOWS_TIMER is not None:
-            self.timer_requested = WINDOWS_TIMER.timeBeginPeriod(1) == 0
-        start = perf_counter()
-
-        def frame():
-            self.job = None
-            elapsed = min((perf_counter() - start) / duration, 1)
-            try:
-                draw(1 - (1 - elapsed) ** 3)
-                if elapsed < 1:
-                    self.job = self.widget.after(8, frame)
-                else:
-                    self.cancel()
-            except Exception:
-                self.cancel()
-                raise
-
-        frame()
+        draw(0)
+        self.clock.active[self] = perf_counter(), duration, draw
+        self.clock.schedule()
 
     def cancel(self):
-        if self.job is not None:
-            self.widget.after_cancel(self.job)
-            self.job = None
-        if self.timer_requested:
-            WINDOWS_TIMER.timeEndPeriod(1)
-            self.timer_requested = False
+        self.clock.remove(self)
 
 
 class HoverButton(tk.Canvas):
@@ -184,7 +203,7 @@ class HoverButton(tk.Canvas):
         self.anchor = anchor
         self.variable = textvariable
         self.caption = tr(text)
-        self.button_font = (SEMIBOLD, 10)
+        self.button_font = ui_font(10, "semibold")
         self.enabled = True
         self.motion = Motion(self)
         self.background = RoundedShape(self, px(9), bg)
@@ -250,6 +269,9 @@ class HoverButton(tk.Canvas):
         self.tint(bg)
 
     def tint(self, color):
+        if self.background.fill == color:
+            self.motion.cancel()
+            return
         start = self.winfo_rgb(self.background.fill)
         finish = self.winfo_rgb(color)
 
@@ -257,7 +279,7 @@ class HoverButton(tk.Canvas):
             self.background.fill = blend_color(start, finish, progress)
             self.background.paint()
 
-        self.motion.start(.075, draw)
+        self.motion.start(.085, draw)
 
     def destroy(self):
         self.motion.cancel()
@@ -266,15 +288,46 @@ class HoverButton(tk.Canvas):
         super().destroy()
 
 
+class SidebarButton(HoverButton):
+    def __init__(self, parent, caption, command, symbol):
+        theme = palette_for(parent)
+        super().__init__(parent, caption, command, theme.surface, theme.hover, theme.ink,
+                         anchor="w", padding=(42, 9))
+        if symbol is None:
+            self.icon = (
+                self.create_oval(0, 0, 0, 0, outline=theme.ink),
+                self.create_oval(0, 0, 0, 0, outline=theme.ink),
+                self.create_line(0, 0, 0, 0, fill=theme.ink),
+            )
+        else:
+            self.icon = (self.create_text(0, 0, text=symbol, fill=theme.ink, font=("Segoe UI Symbol", 12)),)
+
+    def draw(self, event):
+        super().draw(event)
+        x, y = px(22), event.height / 2
+        if len(self.icon) == 1:
+            self.coords(self.icon[0], x, y)
+        else:
+            radius = px(7)
+            self.coords(self.icon[0], x - radius, y - radius, x + radius, y + radius)
+            self.coords(self.icon[1], x - px(3), y - radius, x + px(3), y + radius)
+            self.coords(self.icon[2], x - radius, y, x + radius, y)
+
+    def palette(self, bg, hover, fg):
+        super().palette(bg, hover, fg)
+        for item in self.icon:
+            self.itemconfigure(item, **{"outline" if self.type(item) == "oval" else "fill": fg})
+
+
 class ModelChoice(HoverButton):
     def __init__(self, parent, title, description, command, selected, warning=""):
         theme = palette_for(parent)
         super().__init__(parent, title, command, theme.selected if selected else theme.paper,
                          theme.selected_hover if selected else theme.hover, theme.accent if selected else theme.ink,
                          padding=(12, 6), anchor="w", justify="left")
-        self.description = self.create_text(0, 0, text=tr(description), anchor="nw", fill=theme.muted, font=(FAMILY, 9))
-        self.warning = self.create_text(0, 0, text=tr(warning), anchor="nw", fill=theme.warning, font=(SEMIBOLD, 9))
-        self.configure(font=(SEMIBOLD, 11), height=px(136))
+        self.description = self.create_text(0, 0, text=tr(description), anchor="nw", fill=theme.muted, font=ui_font(9))
+        self.warning = self.create_text(0, 0, text=tr(warning), anchor="nw", fill=theme.warning, font=ui_font(9, "semibold"))
+        self.configure(font=ui_font(11, "semibold"), height=px(136))
 
     def draw(self, event):
         super().draw(event)
@@ -349,7 +402,7 @@ class InAppDialog(tk.Frame):
         self.lift()
         self.grab_set()
         first_control.focus_set()
-        self.motion.start(.1, lambda progress: self.center_panel(px(8 * (1 - progress))))
+        self.motion.start(.12, lambda progress: self.center_panel(px(6 * (1 - progress))))
 
     def center_panel(self, offset):
         self.offset = offset
@@ -396,10 +449,7 @@ class InAppDialog(tk.Frame):
 class FeatureCard(Card):
     def __init__(self, parent, title, value, active, command, settings=None):
         super().__init__(parent, height=122)
-        self.level = float(active)
-        self.motion = Motion(self)
         self.theme = palette_for(parent)
-        self.colors = {color: self.winfo_rgb(color) for color in (self.theme.surface, self.theme.line, "#09080c")}
         self.header = tk.Frame(self.body, bg=self.theme.surface)
         self.header.pack(fill="x")
         self.title = label(self.header, title, size=10, weight="semibold")
@@ -414,34 +464,25 @@ class FeatureCard(Card):
                                     self.theme.accent, padding=(6, 0))
             self.gear.configure(font=("Segoe UI Symbol", 11))
             self.gear.pack(side="right", anchor="n", pady=(px(8), 0))
-        self.draw_level(self.level)
+        self.set_active(active)
         self.fit_height()
 
-    def draw_level(self, level):
-        def mix(start, end):
-            return blend_color(self.colors[start], self.colors[end], level)
-
-        self.level = level
-        bg = mix(self.theme.surface, "#09080c")
+    def set_active(self, active):
+        bg = "#09080c" if active else self.theme.surface
         self.background.fill = bg
-        self.background.outline = mix(self.theme.line, "#09080c")
+        self.background.outline = bg if active else self.theme.line
         self.background.paint()
         for widget in (self.body, self.header, self.switch):
             widget.configure(bg=bg)
-        foreground = BUTTON_TEXT if level > .55 else self.theme.ink
+        foreground = BUTTON_TEXT if active else self.theme.ink
         self.title.configure(bg=bg, fg=foreground)
         self.value.configure(bg=bg, fg=foreground)
         if self.gear:
             self.gear.configure(bg=bg)
-        self.switch.draw_level(level)
 
     def animate(self, active):
-        start = self.level
-        self.motion.start(.095, lambda progress: self.draw_level(start + (float(active) - start) * progress))
-
-    def destroy(self):
-        self.motion.cancel()
-        super().destroy()
+        self.set_active(active)
+        self.switch.animate(active)
 
 
 class Switch(tk.Canvas):
@@ -483,6 +524,101 @@ class Switch(tk.Canvas):
         super().destroy()
 
 
+class SensitivitySlider(tk.Canvas):
+    def __init__(self, parent, value):
+        theme = palette_for(parent)
+        super().__init__(parent, width=px(244), height=px(36), bg=parent["bg"], highlightthickness=0,
+                         bd=0, cursor="hand2", takefocus=True)
+        self.value = value
+        self.value_text = tk.StringVar()
+        self.center_y = px(18)
+        self.left = px(12)
+        self.right = px(232)
+        self.track = self.create_line(self.left, self.center_y, self.right, self.center_y,
+                                      width=px(5), capstyle="round", fill=theme.line)
+        self.fill = self.create_line(self.left, self.center_y, self.right, self.center_y,
+                                     width=px(5), capstyle="round", fill=theme.accent)
+        self.thumb = RoundedShape(self, px(9), theme.ink, theme.accent)
+        self.thumb.resize(px(18), px(18))
+        self.focus_ring = self.create_oval(0, 0, 0, 0, outline=theme.accent, state="hidden")
+        self.bind("<Configure>", self.resize)
+        self.bind("<Button-1>", self.press)
+        self.bind("<B1-Motion>", self.drag)
+        self.bind("<MouseWheel>", lambda event: self.adjust(-1 if event.delta > 0 else 1))
+        self.bind("<FocusIn>", lambda _: self.itemconfigure(self.focus_ring, state="normal"))
+        self.bind("<FocusOut>", lambda _: self.itemconfigure(self.focus_ring, state="hidden"))
+        for key, delta in (("Left", 1), ("Down", 1), ("Right", -1), ("Up", -1)):
+            self.bind(f"<{key}>", lambda _, step=delta: self.adjust(step))
+        self.bind("<Home>", lambda _: self.adjust(MAX_THRESHOLD - self.value))
+        self.bind("<End>", lambda _: self.adjust(MIN_THRESHOLD - self.value))
+        self.draw()
+
+    def get(self):
+        return self.value
+
+    def resize(self, event):
+        self.right = max(self.left + 1, event.width - px(12))
+        self.coords(self.track, self.left, self.center_y, self.right, self.center_y)
+        self.draw()
+
+    def draw(self):
+        fraction = (MAX_THRESHOLD - self.value) / (MAX_THRESHOLD - MIN_THRESHOLD)
+        x = self.left + (self.right - self.left) * fraction
+        self.coords(self.fill, self.left, self.center_y, x, self.center_y)
+        self.coords(self.thumb.item, round(x - px(18) / 2), self.center_y - px(18) // 2)
+        radius = px(12)
+        self.coords(self.focus_ring, x - radius, self.center_y - radius, x + radius, self.center_y + radius)
+        self.value_text.set(f"{self.value} dBFS".replace("-", "\u2212"))
+
+    def press(self, event):
+        self.focus_set()
+        self.drag(event)
+
+    def drag(self, event):
+        fraction = max(0., min(1., (event.x - self.left) / (self.right - self.left)))
+        self.adjust(MAX_THRESHOLD - round(fraction * (MAX_THRESHOLD - MIN_THRESHOLD)) - self.value)
+
+    def adjust(self, delta):
+        value = max(MIN_THRESHOLD, min(MAX_THRESHOLD, self.value + delta))
+        if value != self.value:
+            self.value = value
+            self.draw()
+        return "break"
+
+
+class TranslationLoading(tk.Canvas):
+    def __init__(self, parent, theme):
+        super().__init__(parent, width=px(56), height=px(28), bg=theme.surface, highlightthickness=0)
+        self.create_line(px(14), px(14), px(42), px(14), width=px(27), capstyle="round", fill="#252525")
+        self.dots = [self.create_oval(0, 0, 0, 0, fill="#ffffff", outline="") for _ in range(3)]
+        self.job = None
+
+    def show(self, before):
+        if self.job is None:
+            self.pack(anchor="w", before=before)
+            self.started = perf_counter()
+            self.tick()
+
+    def tick(self):
+        elapsed = perf_counter() - self.started
+        for index, dot in enumerate(self.dots):
+            phase = elapsed / 0.78 - index * 0.16
+            y = 17 - 6 * max(0.0, cos(tau * phase))
+            x = 16 + index * 12
+            self.coords(dot, px(x - 3), px(y - 3), px(x + 3), px(y + 3))
+        self.job = self.after(24, self.tick)
+
+    def hide(self):
+        if self.job is not None:
+            self.after_cancel(self.job)
+            self.job = None
+            self.pack_forget()
+
+    def destroy(self):
+        self.hide()
+        super().destroy()
+
+
 class ScannerWindow:
     def __init__(self, root):
         self.root = root
@@ -493,7 +629,11 @@ class ScannerWindow:
         self.theme = root.theme = DARK if preferences.get("dark_mode") is True else LIGHT
         self.translation_config = self.load_translation_config(preferences)
         saved_features = preferences.get("enabled_features")
-        self.features = frozenset(key for key in saved_features if isinstance(key, str) and key in FEATURES) if isinstance(saved_features, list) else frozenset(("qr",))
+        scan_features = FEATURES - {"assistant"}
+        self.features = (frozenset(key for key in saved_features if isinstance(key, str) and key in scan_features)
+                         if isinstance(saved_features, list) else frozenset(("qr",)))
+        if preferences.get("assistant_enabled", True) is True:
+            self.features |= {"assistant"}
         self.feature_cards = {}
         self.dialog = None
         self.model_body = None
@@ -514,6 +654,22 @@ class ScannerWindow:
         self.luna_fallback = None
         self.luna_signed_in = False
         self.luna_operation = None
+        self.assistant_efforts = ()
+        saved_effort = preferences.get("assistant_effort")
+        self.assistant_effort = saved_effort if saved_effort in REASONING_EFFORTS else "low"
+        self.assistant_tone = "casual" if preferences.get("assistant_tone") == "casual" else "polite"
+        self.gemini_key = decrypt_key(preferences.get("gemini_api_key"))
+        saved_threshold = preferences.get("assistant_mic_db")
+        self.mic_threshold = (saved_threshold if type(saved_threshold) is int
+                              and MIN_THRESHOLD <= saved_threshold <= MAX_THRESHOLD else DEFAULT_THRESHOLD)
+        self.mic_calibrated = preferences.get("assistant_mic_calibrated") is True
+        input_device = preferences.get("assistant_input_device")
+        self.mic_device = (tuple(input_device) if isinstance(input_device, list) and len(input_device) == 2
+                           and all(isinstance(part, str) for part in input_device) else None)
+        self.calibration_cancel = None
+        self.calibration_receiver = None
+        self.assistant_effort_buttons = None
+        self.assistant_tone_buttons = None
         self.luna_status = DisplayVar("연결 확인 중")
         self.luna_controls = None
         self.connection = DisplayVar("SteamVR 연결 확인 중")
@@ -525,12 +681,22 @@ class ScannerWindow:
         self.recent_url = None
         self.recent_widgets = None
         self.latest_text = None
+        self.translation_pending = False
+        self.translation_loading = None
         self.recent_result = None
         self.target = load_target()
         self.target_label = DisplayVar(LANGUAGES[self.target])
         self.model_label = DisplayVar()
         self.selected_model_label = DisplayVar()
-        self.assistant_label = DisplayVar("준비 중")
+        self.assistant_label = DisplayVar("설정 필요" if "assistant" in self.features else "꺼짐")
+        self.assistant_tip = DisplayVar()
+        self.update_assistant_settings()
+        stored_history = preferences.get("assistant_history")
+        self.assistant_history = deque(maxlen=5)
+        if isinstance(stored_history, list):
+            self.assistant_history.extend((item[0], item[1]) for item in stored_history[:5]
+                                          if isinstance(item, list) and len(item) == 2
+                                          and all(isinstance(part, str) for part in item))
         self.refresh_model_labels()
         self.result_label = DisplayVar("번역 결과")
         self.relocalize_recent()
@@ -539,13 +705,13 @@ class ScannerWindow:
         self.language_back = "dashboard"
 
         root.title("LiDAR")
-        icon = Path(__file__).with_name("LiDAR.ico")
-        if icon.is_file():
-            root.iconbitmap(default=str(icon))
+        window_icon = Path(__file__).with_name("LiDAR-Taskbar.ico")
+        if window_icon.is_file():
+            root.iconbitmap(default=str(window_icon))
         root.geometry(f"{px(1080)}x{px(700)}")
         root.minsize(px(940), px(645))
         root.configure(bg=self.theme.paper)
-        root.option_add("*Font", (FAMILY, 10))
+        root.option_add("*Font", ui_font(10))
         set_titlebar_theme(root, self.theme.titlebar_dark)
 
         self.build_shell()
@@ -554,15 +720,15 @@ class ScannerWindow:
         root.bind("<Tab>", self.cycle_dialog_focus)
         root.bind("<Shift-Tab>", lambda _: self.cycle_dialog_focus(reverse=True))
         root.bind("<Map>", self.on_window_mapped, add="+")
-        self.tray = TrayIcon(icon, lambda action: self.events.put(("tray", action))) if icon.is_file() else None
+        tray_icon = Path(__file__).with_name("LiDAR.ico")
+        self.tray = TrayIcon(tray_icon, lambda action: self.events.put(("tray", action))) if tray_icon.is_file() else None
         root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.worker = Thread(target=self.scan, daemon=True)
         self.worker.start()
         Thread(target=watch_runtime, args=(self.stop, lambda: self.events.put(("quit", None))),
                daemon=True, name="steamvr-lifecycle").start()
         self.refresh_job = root.after(70, self.refresh)
-        if self.translation_config[0] == "luna":
-            self.check_luna("status", self.codex.status, "연결 확인 중")
+        self.check_luna("status", self.codex.status, "연결 확인 중")
         Thread(target=self.check_updates, daemon=True).start()
 
     def build_shell(self):
@@ -587,22 +753,15 @@ class ScannerWindow:
         self.nav = {}
         for key, symbol, caption in (("dashboard", "▦", "대시보드"), ("translation", "文", "AI 번역"),
                                      ("assistant", "✦", "AI 어시스턴트")):
-            button = HoverButton(sidebar, f"{symbol}   {tr(caption)}", lambda page=key: self.show(page),
-                                 self.theme.surface, self.theme.hover, self.theme.ink, anchor="w", padding=(12, 9))
+            button = SidebarButton(sidebar, caption, lambda page=key: self.show(page), symbol)
             button.pack(fill="x", padx=px(12), pady=px(2))
             self.nav[key] = button
-        self.nav["settings"] = HoverButton(sidebar, f"⚙   {tr('설정')}", lambda: self.show("settings"),
-                                            self.theme.surface, self.theme.hover, self.theme.ink, anchor="w")
-        self.nav["settings"].pack(side="bottom", fill="x", padx=px(12), pady=(px(2), px(14)))
-        self.nav["locale"] = HoverButton(sidebar, tr("Language"), lambda: self.show("locale"),
-                                          self.theme.surface, self.theme.hover, self.theme.ink,
-                                          anchor="w", padding=(40, 9))
-        self.nav["locale"].pack(side="bottom", fill="x", padx=px(12), pady=px(2))
-        globe = self.nav["locale"]
-        x, y, radius = px(22), px(18), px(7)
-        globe.create_oval(x - radius, y - radius, x + radius, y + radius, outline=self.theme.accent)
-        globe.create_oval(x - px(3), y - radius, x + px(3), y + radius, outline=self.theme.accent)
-        globe.create_line(x - radius, y, x + radius, y, fill=self.theme.accent)
+        bottom = tk.Frame(sidebar, bg=self.theme.surface)
+        bottom.pack(side="bottom", fill="x", pady=(0, px(12)))
+        for key, symbol, caption in (("locale", None, "Language"), ("settings", "⚙", "설정")):
+            button = SidebarButton(bottom, caption, lambda page=key: self.show(page), symbol)
+            button.pack(fill="x", padx=px(12), pady=px(2))
+            self.nav[key] = button
         main = tk.Frame(self.shell, bg=self.theme.paper)
         main.pack(side="left", fill="both", expand=True, padx=px(26), pady=(px(22), px(18)))
         header = tk.Frame(main, bg=self.theme.paper)
@@ -629,7 +788,7 @@ class ScannerWindow:
         self.viewport.pack(fill="both", expand=True)
         self.view = tk.Frame(self.viewport, bg=self.theme.paper)
         self.view.place(x=0, y=0, relwidth=1, relheight=1)
-        self.page_motion = Motion(self.view)
+        self.page_motion = Motion(self.title)
         footer = tk.Frame(main, bg=self.theme.paper)
         label(footer, variable=self.status, fg=self.theme.muted, size=9, wrap=690).pack(side="left", fill="x", expand=True)
 
@@ -674,6 +833,7 @@ class ScannerWindow:
             self.status.set("표시 언어를 저장하지 못했습니다.")
             return
         set_locale(locale)
+        self.root.option_add("*Font", ui_font(10))
         self.relocalize_recent()
         for variable in vars(self).values():
             if isinstance(variable, DisplayVar):
@@ -687,6 +847,7 @@ class ScannerWindow:
         animate = self.current_page is not None
         self.current_page = page
         self.detail_boxes = None
+        self.translation_loading = None
         self.recent_widgets = None
         self.feature_cards = {}
         self.luna_controls = None
@@ -721,15 +882,14 @@ class ScannerWindow:
         else:
             self.title.configure(text=tr("AI 어시스턴트"))
             self.subtitle.pack_forget()
-            card = Card(self.view, height=145)
-            card.pack(fill="x")
-            label(card.body, variable=self.assistant_label, size=19, weight="bold").pack(anchor="w", pady=(px(9), px(7)))
-            card.fit_height()
+            self.assistant_page()
         if animate:
-            self.slide_page()
+            self.animate_page()
 
-    def slide_page(self):
-        self.page_motion.start(.1, lambda progress: self.view.place_configure(y=px(7 * (1 - progress))))
+    def animate_page(self):
+        start = self.title.winfo_rgb(self.theme.muted)
+        end = self.title.winfo_rgb(self.theme.ink)
+        self.page_motion.start(.11, lambda progress: self.title.configure(fg=blend_color(start, end, progress)))
 
     def dashboard(self):
         summary = tk.Frame(self.view, bg=self.theme.paper)
@@ -739,7 +899,8 @@ class ScannerWindow:
         tiles = (("qr", "QR 스캔", self.scan_state), ("translation", "AI 번역", self.model_label),
                  ("assistant", "AI 어시스턴트", self.assistant_label))
         for index, (feature, title, value) in enumerate(tiles):
-            settings = self.open_translation_card_settings if feature == "translation" else None
+            settings = {"translation": self.open_translation_card_settings,
+                        "assistant": self.go_to_assistant_settings}.get(feature)
             toggle = (lambda key=feature: self.toggle_feature(key)) if feature in FEATURES else None
             card = FeatureCard(summary, title, value, feature in self.features, toggle, settings)
             self.feature_cards[feature] = card
@@ -758,10 +919,10 @@ class ScannerWindow:
         diagram.create_rectangle(px(26), px(14), px(100), px(59), outline=self.theme.accent, dash=(3, 3))
         diagram.create_line(*(px(n) for n in (26, 35, 26, 59, 52, 59)), fill=self.theme.accent, width=px(3))
         diagram.create_line(*(px(n) for n in (74, 14, 100, 14, 100, 38)), fill=self.theme.accent, width=px(3))
-        diagram.create_text(px(118), px(36), anchor="w", text=tr("L자 프레임"), font=(SEMIBOLD, 11), fill=self.theme.ink)
+        diagram.create_text(px(118), px(36), anchor="w", text=tr("L자 프레임"), font=ui_font(11, "semibold"), fill=self.theme.ink)
         for number, step in (("01", "양손의 엄지와 검지로 L자를 만듭니다."),
-                             ("02", "손 사이 창에 QR이나 텍스트를 맞춥니다."),
-                             ("03", "자세를 풀어 읽습니다.")):
+                             ("02", "대상을 창에 맞춘 뒤 자세를 풀어 읽습니다."),
+                             ("03", "오른손 트리거로 스캔을 취소합니다.")):
             row = tk.Frame(guide.body, bg=self.theme.surface)
             row.pack(fill="x", pady=px(4))
             label(row, number, size=9, weight="semibold", fg=self.theme.accent).pack(side="left", padx=(0, px(10)))
@@ -816,14 +977,86 @@ class ScannerWindow:
         for index in range(2):
             card = Card(self.view, height=310)
             card.grid(row=0, column=index, sticky="nsew", padx=(0, px(12) if index == 0 else 0))
-            label(card.body, "인식한 원문", variable=self.result_label if index else None,
+            label(card.body, "원문", variable=self.result_label if index else None,
                   size=16, weight="bold").pack(anchor="w", pady=(0, px(15)))
+            if index:
+                self.translation_loading = TranslationLoading(card.body, self.theme)
             box = tk.Text(card.body, bg=self.theme.surface, fg=self.theme.ink, bd=0, highlightthickness=0, wrap="word",
-                          font=(FAMILY, 12), padx=0, pady=px(3), spacing2=px(4), spacing3=px(8))
+                          font=ui_font(12), padx=0, pady=px(3), spacing2=px(4), spacing3=px(8))
             box.pack(fill="both", expand=True)
             boxes.append(box)
         self.detail_boxes = boxes
         self.render_translation()
+
+    def assistant_page(self):
+        header = Card(self.view, height=86)
+        header.pack(fill="x", pady=(0, px(12)))
+        HoverButton(header.body, "설정으로 이동", self.go_to_assistant_settings, self.theme.paper,
+                    self.theme.selected, self.theme.accent).pack(side="right")
+        label(header.body, variable=self.assistant_label, size=13, weight="bold").pack(anchor="w")
+        label(header.body, variable=self.assistant_tip,
+              fg=self.theme.muted, wrap=390).pack(anchor="w", pady=(px(4), 0))
+        header.fit_height()
+
+        history = tk.Frame(self.view, bg=self.theme.paper)
+        history.pack(fill="both", expand=True)
+        history.columnconfigure(0, weight=2, uniform="history")
+        history.columnconfigure(1, weight=3, uniform="history")
+        history.rowconfigure(0, weight=1)
+        recent = Card(history, height=284, inset=16)
+        recent.grid(row=0, column=0, sticky="nsew", padx=(0, px(12)))
+        label(recent.body, "최근 질문", size=14, weight="bold").pack(anchor="w", pady=(0, px(12)))
+        self.assistant_history_list = tk.Frame(recent.body, bg=self.theme.surface)
+        self.assistant_history_list.pack(fill="both", expand=True)
+        detail = Card(history, height=284, inset=18)
+        detail.grid(row=0, column=1, sticky="nsew")
+        label(detail.body, "질문과 답변", size=14, weight="bold").pack(anchor="w", pady=(0, px(12)))
+        self.assistant_history_text = tk.Text(detail.body, bg=self.theme.surface, fg=self.theme.ink,
+                                              bd=0, highlightthickness=0, padx=0, wrap="word",
+                                              font=ui_font(11), spacing3=px(6))
+        self.assistant_history_text.tag_configure("heading", foreground=self.theme.accent, font=ui_font(10, "semibold"),
+                                                  spacing1=px(6), spacing3=px(7))
+        self.assistant_history_text.pack(fill="both", expand=True)
+        self.render_assistant_history()
+
+    def render_assistant_history(self):
+        for widget in self.assistant_history_list.winfo_children():
+            widget.destroy()
+        self.assistant_history_buttons = []
+        for i, (question, _) in enumerate(self.assistant_history):
+            short = " ".join(question.split())
+            short = short if len(short) <= 28 else short[:27] + "…"
+            button = HoverButton(self.assistant_history_list, "", lambda index=i: self.select_assistant_history(index),
+                                 self.theme.paper, self.theme.selected, self.theme.ink, anchor="w",
+                                 textvariable=tk.StringVar(value=short), padding=(10, 6), wraplength=px(185),
+                                 justify="left")
+            button.pack(fill="x", pady=(0, px(6)))
+            self.assistant_history_buttons.append(button)
+        if not self.assistant_history:
+            label(self.assistant_history_list, "아직 질문 기록이 없습니다.",
+                  fg=self.theme.muted, wrap=185).pack(anchor="w")
+        self.select_assistant_history(0)
+
+    def select_assistant_history(self, index):
+        for i, button in enumerate(self.assistant_history_buttons):
+            selected = i == index
+            button.palette(self.theme.selected if selected else self.theme.paper, self.theme.selected_hover,
+                           self.theme.accent if selected else self.theme.ink)
+        box = self.assistant_history_text
+        box.configure(state="normal")
+        box.delete("1.0", "end")
+        if self.assistant_history:
+            question, answer = self.assistant_history[index]
+            box.insert("end", tr("질문") + "\n", "heading")
+            box.insert("end", question + "\n\n")
+            box.insert("end", tr("답변") + "\n", "heading")
+            box.insert("end", answer)
+        box.yview_moveto(0)
+        box.configure(state="disabled")
+
+    def go_to_assistant_settings(self):
+        self.show("settings")
+        self.assistant_settings_button.focus_set()
 
     def settings(self):
         language = Card(self.view, height=90, inset=22)
@@ -850,13 +1083,357 @@ class ScannerWindow:
         label(startup.body, "SteamVR 기동 시 자동 실행", size=15, weight="bold").pack(anchor="w")
         label(startup.body, variable=self.startup_status, fg=self.theme.muted).pack(anchor="w", pady=(px(4), 0))
         startup.fit_height()
-        appearance = Card(self.view, height=80, inset=22)
-        appearance.pack(fill="x")
+
+        preferences = tk.Frame(self.view, bg=self.theme.paper)
+        preferences.pack(fill="x")
+        preferences.columnconfigure(0, weight=1, uniform="preferences")
+        preferences.columnconfigure(1, weight=1, uniform="preferences")
+        appearance = Card(preferences, height=82, inset=16)
+        appearance.grid(row=0, column=0, sticky="nsew", padx=(0, px(12)))
         self.theme_switch = Switch(appearance.body, self.theme.titlebar_dark, self.toggle_theme)
         self.theme_switch.pack(side="right")
         label(appearance.body, "다크 모드", size=15, weight="bold").pack(anchor="w")
         appearance.fit_height()
+        assistant_settings = Card(preferences, height=82, inset=16)
+        assistant_settings.grid(row=0, column=1, sticky="nsew")
+        self.assistant_settings_button = HoverButton(assistant_settings.body, "열기", self.show_assistant_settings,
+                                                     self.theme.paper, self.theme.selected, self.theme.accent,
+                                                     padding=(10, 6))
+        self.assistant_settings_button.pack(side="right")
+        label(assistant_settings.body, "어시스턴트 설정", size=13, weight="bold", wrap=170).pack(anchor="w")
+        assistant_settings.fit_height()
         label(self.view, f"LiDAR {VERSION}", fg=self.theme.muted, size=9).pack(anchor="e", pady=(px(9), 0))
+
+    def assistant_config(self):
+        reason = ""
+        if not self.luna_signed_in:
+            reason = "어시스턴트를 사용하려면 Codex에 연결하세요."
+        elif not self.assistant_efforts:
+            reason = "연결된 계정에서 Luna를 사용할 수 없습니다."
+        elif not self.gemini_key:
+            reason = "설정에서 Gemini API 키를 입력하세요."
+        elif not self.mic_calibrated:
+            reason = "PC 앱에서 마이크 감도를 보정하세요."
+        effort = self.assistant_effort if self.assistant_effort in self.assistant_efforts else (
+            "low" if "low" in self.assistant_efforts else "none")
+        return AssistantConfig(reason, self.mic_threshold, effort, self.gemini_key, self.assistant_tone, self.mic_device)
+
+    def update_assistant_settings(self):
+        config = self.assistant_config()
+        enabled = "assistant" in self.features
+        self.assistant_label.set("꺼짐" if not enabled else "설정 필요" if config.reason else "사용 가능")
+        self.assistant_tip.set("오른손 트리거를 두 번 눌러 어시스턴트를 켭니다." if enabled
+                               else "대시보드에서 AI 어시스턴트를 켜세요.")
+        if self.assistant_effort_buttons is not None:
+            for effort, button in self.assistant_effort_buttons.items():
+                button.configure(state="normal" if effort in self.assistant_efforts else "disabled")
+                self.mark_assistant_option(button, effort == config.effort)
+        if self.assistant_tone_buttons is not None:
+            for tone, button in self.assistant_tone_buttons.items():
+                self.mark_assistant_option(button, tone == config.tone)
+
+    def mark_assistant_option(self, button, selected):
+        button.palette(self.theme.selected if selected else self.theme.paper, self.theme.selected_hover,
+                       self.theme.accent if selected else self.theme.ink)
+
+    def show_assistant_settings(self, initial="connection"):
+        if self.dialog is not None:
+            return
+
+        def close():
+            self.luna_controls = None
+            self.assistant_effort_buttons = None
+            self.assistant_tone_buttons = None
+            self.close_dialog()
+
+        self.dialog = InAppDialog(self.root, "어시스턴트 설정", close)
+        body = self.dialog.body
+        tabs = tk.Frame(body, bg=self.theme.surface)
+        tabs.pack(fill="x", pady=(px(16), px(13)))
+        region = tk.Frame(body, bg=self.theme.surface, width=px(526), height=px(245))
+        region.pack(fill="x")
+        region.pack_propagate(False)
+        panes = {name: tk.Frame(region, bg=self.theme.surface) for name in ("connection", "answer", "mic")}
+        buttons = {}
+
+        def show_pane(name):
+            for key, pane in panes.items():
+                if key == name:
+                    pane.pack(fill="both", expand=True)
+                else:
+                    pane.pack_forget()
+                self.mark_assistant_option(buttons[key], key == name)
+
+        for i, (name, caption) in enumerate((("connection", "연결"), ("answer", "답변"), ("mic", "마이크"))):
+            tabs.columnconfigure(i, weight=1, uniform="section")
+            button = HoverButton(tabs, caption, lambda key=name: show_pane(key), self.theme.paper,
+                                 self.theme.selected, self.theme.ink, padding=(12, 7))
+            button.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else px(6), 0))
+            buttons[name] = button
+
+        connection = panes["connection"]
+        label(connection, "Codex 연결", size=12, weight="bold").pack(anchor="w")
+        self.luna_settings(connection)
+        label(connection, "Gemini 3.5 Transcribe API 키", size=12, weight="bold").pack(anchor="w", pady=(px(15), px(5)))
+        fields = tk.Frame(connection, bg=self.theme.surface, height=px(38))
+        fields.pack(fill="x")
+        fields.pack_propagate(False)
+        entry = tk.Entry(fields, show="•", bg=self.theme.paper, fg=self.theme.ink, insertbackground=self.theme.ink,
+                         relief="flat", highlightthickness=1, highlightbackground=self.theme.line)
+        entry.pack(side="left", expand=True, fill="both", padx=(0, px(6)), pady=px(2))
+        notice = DisplayVar("API 키 저장됨" if self.gemini_key else "")
+
+        def save_key(remove=False):
+            key = "" if remove else entry.get().strip()
+            if not remove and not re.fullmatch(r"[!-~]{1,256}", key):
+                notice.set("API 키를 확인하세요.")
+                return
+            try:
+                save_settings(gemini_api_key=encrypt_key(key) if key else "")
+            except OSError:
+                notice.set("API 키를 저장하지 못했습니다.")
+                return
+            self.gemini_key = key
+            entry.delete(0, "end")
+            notice.set("API 키 저장됨" if key else "")
+            self.update_assistant_settings()
+
+        HoverButton(fields, "저장", save_key, self.theme.paper, self.theme.selected, self.theme.accent).pack(side="right")
+        HoverButton(fields, "키 지우기", lambda: save_key(True), self.theme.paper,
+                    self.theme.selected, self.theme.ink).pack(side="right", padx=(0, px(5)))
+        label(connection, "녹음은 Gemini로, 받아쓴 질문과 화면 캡처는 Codex로 전송합니다.",
+              size=9, fg=self.theme.muted, wrap=500).pack(anchor="w", pady=(px(6), 0))
+
+        answers = panes["answer"]
+        label(answers, "말투", size=12, weight="bold").pack(anchor="w", pady=(0, px(6)))
+        tone_choices = tk.Frame(answers, bg=self.theme.surface)
+        tone_choices.pack(fill="x")
+        self.assistant_tone_buttons = {}
+
+        def choose_tone(tone):
+            try:
+                save_settings(assistant_tone=tone)
+            except OSError:
+                notice.set("설정을 저장하지 못했습니다. 다시 시도하세요.")
+                return
+            self.assistant_tone = tone
+            self.update_assistant_settings()
+
+        for tone, caption in (("polite", "존댓말"), ("casual", "반말")):
+            button = HoverButton(tone_choices, caption, lambda value=tone: choose_tone(value), self.theme.paper,
+                                 self.theme.selected, self.theme.ink, padding=(12, 6))
+            button.pack(side="left", padx=(0, px(6)))
+            self.assistant_tone_buttons[tone] = button
+
+        label(answers, "Luna 추론 수준", size=12, weight="bold").pack(anchor="w", pady=(px(19), px(6)))
+        choices = tk.Frame(answers, bg=self.theme.surface)
+        choices.pack(fill="x")
+        self.assistant_effort_buttons = {}
+
+        def choose_effort(effort):
+            try:
+                save_settings(assistant_effort=effort)
+            except OSError:
+                notice.set("설정을 저장하지 못했습니다. 다시 시도하세요.")
+                return
+            self.assistant_effort = effort
+            self.update_assistant_settings()
+
+        for effort in REASONING_EFFORTS:
+            button = HoverButton(choices, effort, lambda value=effort: choose_effort(value), self.theme.paper,
+                                 self.theme.selected, self.theme.ink, padding=(8, 5))
+            button.pack(side="left", padx=(0, px(4)))
+            self.assistant_effort_buttons[effort] = button
+        microphone = panes["mic"]
+        label(microphone, "마이크 입력", size=12, weight="bold").pack(anchor="w")
+        device_row = tk.Frame(microphone, bg=self.theme.surface)
+        device_row.pack(fill="x", pady=(px(6), 0))
+
+        def pick_microphone():
+            close()
+            self.show_microphone_picker()
+
+        HoverButton(device_row, "변경", pick_microphone, self.theme.paper,
+                    self.theme.selected, self.theme.accent, padding=(12, 6)).pack(side="right")
+        selected_device = tk.StringVar(value=self.mic_device[1] if self.mic_device else tr("Windows 기본 마이크"))
+        label(device_row, variable=selected_device, fg=self.theme.muted, wrap=385).pack(side="left", pady=px(5))
+        label(microphone, "마이크 감도", size=12, weight="bold").pack(anchor="w", pady=(px(17), 0))
+        controls = tk.Frame(microphone, bg=self.theme.surface)
+        controls.pack(fill="x", pady=(px(4), 0))
+        slider = SensitivitySlider(controls, self.mic_threshold)
+        value = label(controls, variable=slider.value_text, size=10, weight="semibold", fg=self.theme.accent)
+        value.configure(width=10, anchor="e")
+        value.pack(side="right", padx=(px(8), 0))
+        slider.pack(side="left", fill="x", expand=True)
+        actions = tk.Frame(microphone, bg=self.theme.surface)
+        actions.pack(fill="x", pady=(px(5), 0))
+        label(actions, "오른쪽으로 옮기면 작은 목소리도 감지합니다.",
+              size=9, fg=self.theme.muted, wrap=220).pack(side="left")
+
+        def save_threshold():
+            threshold = slider.get()
+            try:
+                save_settings(assistant_mic_db=threshold, assistant_mic_calibrated=True)
+            except OSError:
+                notice.set("설정을 저장하지 못했습니다. 다시 시도하세요.")
+                return
+            self.mic_threshold = threshold
+            self.mic_calibrated = True
+            notice.set("마이크 감도를 저장했습니다.")
+            self.update_assistant_settings()
+
+        def recalibrate():
+            close()
+            self.show_mic_calibration()
+
+        HoverButton(actions, "감도 저장", save_threshold, self.theme.paper,
+                    self.theme.selected, self.theme.accent).pack(side="right")
+        HoverButton(actions, "다시 보정", recalibrate, self.theme.paper,
+                    self.theme.selected, self.theme.ink).pack(side="right", padx=(0, px(6)))
+        bottom = tk.Frame(body, bg=self.theme.surface)
+        bottom.pack(fill="x", pady=(px(10), 0))
+        label(bottom, variable=notice, size=9, fg=self.theme.muted, wrap=390).pack(side="left")
+        HoverButton(bottom, "닫기", close, self.theme.paper, self.theme.selected, self.theme.ink).pack(side="right")
+        self.update_assistant_settings()
+        show_pane(initial)
+        self.dialog.open(buttons[initial])
+
+    def show_microphone_picker(self):
+        if self.dialog is not None:
+            return
+
+        def back():
+            self.close_dialog()
+            self.show_assistant_settings("mic")
+
+        self.dialog = InAppDialog(self.root, "마이크 입력", back)
+        body = self.dialog.body
+        status = DisplayVar()
+        choices = [None]
+        try:
+            devices = sorted((identity for _, identity in input_devices()),
+                             key=lambda identity: (identity[0] != "Windows WASAPI", identity[1].casefold()))
+            displayed = set()
+            for identity in devices:
+                if identity[1] not in displayed or identity == self.mic_device:
+                    choices.append(identity)
+                    displayed.add(identity[1])
+        except SpeechError as error:
+            status.set(str(error))
+        names = [tr("Windows 기본 마이크"), *(f"{name}  ·  {host}" for host, name in choices[1:])]
+        inputs = tk.Listbox(body, listvariable=tk.StringVar(value=names), width=54, height=8, font=ui_font(10),
+                            bg=self.theme.paper, fg=self.theme.ink, selectbackground=self.theme.selected,
+                            selectforeground=self.theme.accent, bd=0, highlightthickness=1,
+                            highlightcolor=self.theme.accent, highlightbackground=self.theme.line, exportselection=False)
+        inputs.pack(fill="x", pady=(px(14), px(9)), ipadx=px(5), ipady=px(5))
+        if self.mic_device not in choices:
+            if not status.get():
+                status.set("선택한 마이크를 찾을 수 없습니다.")
+            index = 0
+        else:
+            index = choices.index(self.mic_device)
+        inputs.selection_set(index)
+        inputs.activate(index)
+        inputs.see(index)
+        label(body, variable=status, fg=self.theme.muted, size=9, wrap=450).pack(anchor="w")
+
+        def save(_=None):
+            selected = inputs.curselection()
+            if not selected:
+                return "break"
+            device = choices[selected[0]]
+            if device != self.mic_device:
+                try:
+                    save_settings(assistant_input_device=device, assistant_mic_calibrated=False)
+                except OSError:
+                    status.set("설정을 저장하지 못했습니다. 다시 시도하세요.")
+                    return "break"
+                self.mic_device, self.mic_calibrated = device, False
+                self.update_assistant_settings()
+            back()
+            return "break"
+
+        actions = tk.Frame(body, bg=self.theme.surface)
+        actions.pack(fill="x", pady=(px(8), 0))
+        HoverButton(actions, "저장", save, VIOLET, "#4e009e", BUTTON_TEXT).pack(side="right")
+        HoverButton(actions, "취소", back, self.theme.paper, self.theme.selected, self.theme.ink).pack(side="right", padx=(0, px(6)))
+        inputs.bind("<Return>", save)
+        inputs.bind("<Double-Button-1>", save)
+        self.dialog.open(inputs)
+
+    def show_mic_calibration(self):
+        if self.dialog is not None:
+            return
+        cancel = self.calibration_cancel = Event()
+        device = self.mic_device
+
+        def close():
+            cancel.set()
+            self.calibration_cancel = self.calibration_receiver = None
+            self.close_dialog()
+
+        self.dialog = InAppDialog(self.root, "마이크 감도 보정", close)
+        body = self.dialog.body
+        instruction = DisplayVar("아래 예문을 평소 목소리로 읽어 주세요.")
+        example = DisplayVar("예문 · 이 화면에 보이는 내용을 알려줘.")
+        label(body, variable=instruction, wrap=460).pack(anchor="w", pady=(px(15), px(7)))
+        label(body, variable=example, size=13, weight="semibold", wrap=460).pack(anchor="w", pady=(0, px(12)))
+        label(body, "설정의 어시스턴트 설정에서 감도를 조절하거나 다시 보정할 수 있어요.",
+              size=9, fg=self.theme.muted, wrap=460).pack(anchor="w")
+        controls = tk.Frame(body, bg=self.theme.surface)
+        controls.pack(fill="x", pady=(px(16), 0))
+        voice = None
+        complete = False
+
+        def begin():
+            if complete:
+                close()
+                return
+            speaking = voice is None
+            instruction.set("지금 예문을 읽어 주세요." if speaking else "지금은 말하지 마세요.")
+            start.configure(text="측정 중", state="disabled")
+
+            def work():
+                try:
+                    result = measure_microphone(4 if speaking else 2, cancel, device)
+                except SpeechError as error:
+                    result = str(error)
+                self.events.put(("mic-calibration", (cancel, speaking, result)))
+
+            Thread(target=work, daemon=True).start()
+
+        def measured(speaking, result):
+            nonlocal voice, complete
+            if isinstance(result, str):
+                instruction.set(result)
+                start.configure(text="다시 시도", state="normal")
+            elif speaking:
+                voice = result
+                instruction.set("이제 말하지 않고 주변 소리를 측정합니다.")
+                example.set("")
+                start.configure(text="주변 소리 측정", state="normal")
+            else:
+                try:
+                    level = calibrated_threshold(voice, result)
+                    save_settings(assistant_mic_db=level, assistant_mic_calibrated=True)
+                except (SpeechError, OSError) as error:
+                    voice = None
+                    instruction.set(str(error) if isinstance(error, SpeechError) else "설정을 저장하지 못했습니다. 다시 시도하세요.")
+                    example.set("예문 · 이 화면에 보이는 내용을 알려줘.")
+                    start.configure(text="다시 시도", state="normal")
+                    return
+                self.mic_threshold, self.mic_calibrated = level, True
+                self.update_assistant_settings()
+                complete = True
+                instruction.set("마이크 감도를 저장했습니다.")
+                example.set("VR에서 오른손 트리거를 두 번 누르면 시작할 수 있어요.")
+                start.configure(text="완료", state="normal")
+
+        self.calibration_receiver = measured
+        HoverButton(controls, "닫기", close, self.theme.paper, self.theme.selected, self.theme.ink).pack(side="right")
+        start = HoverButton(controls, "목소리 측정", begin, VIOLET, "#4e009e", BUTTON_TEXT)
+        start.pack(side="right", padx=(0, px(8)))
+        self.dialog.open(start)
 
     def locale_settings(self):
         card = Card(self.view, height=280, inset=24)
@@ -876,6 +1453,7 @@ class ScannerWindow:
                                  self.theme.selected_hover if selected else self.theme.hover,
                                  self.theme.accent if selected else self.theme.ink, anchor="w")
             row, column = divmod(index, 2)
+            button.configure(font=ui_font(10, "semibold", locale=locale))
             choices.columnconfigure(column, weight=1, uniform="ui-language")
             button.grid(row=row, column=column, sticky="ew", padx=(0, px(8)), pady=(0, px(8)))
             self.locale_buttons[locale] = button
@@ -891,7 +1469,10 @@ class ScannerWindow:
             return
         changed = self.features ^ {feature}
         try:
-            save_settings(enabled_features=sorted(changed))
+            if feature == "assistant":
+                save_settings(assistant_enabled="assistant" in changed)
+            else:
+                save_settings(enabled_features=sorted(changed - {"assistant"}))
         except OSError:
             self.status.set("기능 설정을 저장하지 못했습니다.")
             return
@@ -901,6 +1482,8 @@ class ScannerWindow:
             card.animate(feature in changed)
         if feature == "qr":
             self.scan_state.set("대기 중" if feature in changed else "꺼짐")
+        elif feature == "assistant":
+            self.update_assistant_settings()
 
     def open_translation_card_settings(self):
         if self.translation_config[0]:
@@ -1209,6 +1792,8 @@ class ScannerWindow:
         elif self.luna_signed_in:
             self.luna_effort = None
             self.luna_fallback = None
+            self.assistant_efforts = ()
+            self.update_assistant_settings()
             self.check_luna("logout", self.codex.logout, "연결 해제 중")
         else:
             self.login_cancel.clear()
@@ -1329,10 +1914,23 @@ class ScannerWindow:
         if values is None:
             values = tr("아직 읽은 텍스트가 없습니다."), tr("번역 결과가 여기에 표시됩니다.")
         for box, value in zip(self.detail_boxes, values):
+            shown = tr(value) if isinstance(value, Message) else value
+            if box.get("1.0", "end-1c") == shown:
+                continue
             box.configure(state="normal")
             box.delete("1.0", "end")
-            box.insert("1.0", value)
+            box.insert("1.0", shown)
             box.configure(state="disabled")
+        if self.translation_pending:
+            self.translation_loading.show(before=self.detail_boxes[1])
+        else:
+            self.translation_loading.hide()
+
+    def cancel_translation_preview(self):
+        if self.translation_pending:
+            self.translation_pending = False
+            self.result_label.set("번역 결과")
+            self.render_translation()
 
     def scan(self):
         watch_sessions(self.stop, lambda msg: self.events.put(("status", msg)),
@@ -1340,7 +1938,14 @@ class ScannerWindow:
                        lambda connected: self.events.put(("connection", connected)),
                        target_language=lambda: self.target, cloud_translate=self.translate_text,
                        sync_startup=self.startup.sync,
-                       options=lambda: (self.features, self.translation_config[0]))
+                       options=lambda: (self.features, self.translation_config[0]),
+                       text_preview=lambda source: self.events.put(("text-preview", source)),
+                       assistant_hooks=(self.assistant_config, self.ask_assistant,
+                                        lambda reason: self.events.put(("assistant-setup", reason)),
+                                        lambda *result: self.events.put(("assistant-result", result))))
+
+    def ask_assistant(self, question, capture, locale, effort, cancel, tone):
+        return self.codex.ask(question, capture, LANGUAGES[locale], effort, cancel, tone)
 
     def translate_text(self, source, target, local):
         provider, key = self.translation_config
@@ -1384,12 +1989,21 @@ class ScannerWindow:
                     self.relocalize_recent()
                     self.render_recent()
                     if mode != "QR":
-                        self.latest_text = source, output
+                        self.translation_pending = False
                         target, provider = details
+                        self.latest_text = source, output
                         caption = (Message("{language} 결과", language=Message(LANGUAGES[target]))
                                    if mode == "AI 번역" else Message(mode if mode == "AI 어시스턴트" else "인식 결과"))
                         self.result_label.set(Message("{caption} · {provider}", caption=caption, provider=provider)
-                                              if provider else caption)
+                                              if provider and provider != "Luna" else caption)
+                        self.render_translation()
+                elif kind == "text-preview":
+                    if value is None:
+                        self.cancel_translation_preview()
+                    else:
+                        self.latest_text = value, ""
+                        self.translation_pending = True
+                        self.result_label.set("번역 중")
                         self.render_translation()
                 elif kind == "luna":
                     self.luna_operation = None
@@ -1397,18 +2011,36 @@ class ScannerWindow:
                         self.luna_status.set(value)
                     else:
                         self.luna_signed_in, efforts = value
+                        self.assistant_efforts = efforts
                         self.luna_effort = efforts[0] if efforts else None
                         self.luna_fallback = "low" if "low" in efforts else None
-                        if efforts:
-                            self.luna_status.set("연결됨 · GPT-6 Luna · 추론 없음 (none)")
-                        else:
-                            self.luna_status.set("연결됨 · GPT-6 Luna의 빠른 추론 설정을 확인할 수 없습니다."
-                                                 if self.luna_signed_in else "ChatGPT 연결 안 됨")
+                        self.luna_status.set("연결됨" if self.luna_signed_in else "ChatGPT 연결 안 됨")
                     self.render_luna()
+                    self.update_assistant_settings()
+                elif kind == "assistant-setup":
+                    self.assistant_label.set(value)
+                    if self.dialog is None:
+                        self.restore_window()
+                        if value == "PC 앱에서 마이크 감도를 보정하세요.":
+                            self.show_mic_calibration()
+                        else:
+                            self.go_to_assistant_settings()
+                            self.show_assistant_settings()
+                elif kind == "assistant-result":
+                    self.assistant_history.appendleft((value[0], value[1]))
+                    try:
+                        save_settings(assistant_history=list(self.assistant_history))
+                    except OSError:
+                        self.status.set("질문 기록을 저장하지 못했습니다.")
+                    if self.current_page == "assistant":
+                        self.render_assistant_history()
+                elif kind == "mic-calibration":
+                    token, speaking, result = value
+                    if token is self.calibration_cancel and self.calibration_receiver is not None:
+                        self.calibration_receiver(speaking, result)
                 elif kind == "luna-effort":
                     if self.luna_effort == "none" and self.luna_fallback == value:
                         self.luna_effort = value
-                        self.luna_status.set("연결됨 · GPT-6 Luna · 추론 낮음 (low)")
                 elif kind == "model-progress":
                     self.local_status.set(Message("다운로드 중 · {value}%", value=value))
                 elif kind == "model-finished":
@@ -1434,15 +2066,17 @@ class ScannerWindow:
                 elif kind == "tray":
                     self.restore_window()
                 elif kind == "connection":
+                    if not value:
+                        self.cancel_translation_preview()
                     self.connection.set("SteamVR 연결됨" if value else "SteamVR 연결 안 됨")
                     self.scan_state.set(("스캔 대기" if value else "대기 중") if "qr" in self.features else "꺼짐")
-                    self.status.set("제스처를 기다리고 있습니다" if value else "")
+                    self.status.set("")
                 else:
-                    self.status.set(value)
+                    self.status.set("" if value.startswith("제스처 대기") else value)
                     state = "스캔 대기"
                     if value.startswith("조준"):
                         state = "조준 중"
-                    elif value.startswith(("QR 인식 ·", "텍스트 인식 및")):
+                    elif value.startswith(("QR 인식 ·", "텍스트 인식 중")):
                         state = "인식 중"
                     if "qr" in self.features:
                         self.scan_state.set(state)
@@ -1480,6 +2114,8 @@ class ScannerWindow:
 
     def close(self):
         self.stop.set()
+        if self.calibration_cancel is not None:
+            self.calibration_cancel.set()
         if self.tray is not None:
             self.tray.close()
             self.tray = None

@@ -11,6 +11,7 @@ root = Path(SPECPATH)
 datas = [
     (str(root / "input"), "input"),
     (str(root / "LiDAR.ico"), "."),
+    (str(root / "LiDAR-Taskbar.ico"), "."),
     (str(root / "fonts"), "fonts"),
     (str(root / "brand" / "lidar-wordmark.png"), "brand"),
     (str(root / "languages.json"), "."),
@@ -62,6 +63,7 @@ wheel_dlls = {source for name, source, _ in analysis.binaries
 analysis.binaries = [
     (name, source, kind) for name, source, kind in analysis.binaries
     if not Path(name).name.startswith("opencv_videoio_ffmpeg")
+    and Path(name).name != "libportaudio64bit-asio.dll"
     and not (name == Path(name).name and source in wheel_dlls)
 ]
 
@@ -73,6 +75,6 @@ exe = EXE(
     console=False,
     upx=False,
     manifest=str(root / "lidar.manifest"),
-    icon=str(root / "LiDAR.ico"),
+    icon=str(root / "LiDAR-Taskbar.ico"),
 )
 coll = COLLECT(exe, analysis.binaries, analysis.datas, name="LiDAR", upx=False)

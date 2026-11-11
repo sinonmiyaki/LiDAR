@@ -1,12 +1,15 @@
-"""Use the bundled Pretendard faces and the native Windows display scale."""
+"""Register bundled fonts and use the native Windows display scale."""
 
 import ctypes
 from pathlib import Path
+from i18n import get_locale
 
 
 FONT_DIR = Path(__file__).with_name("fonts")
-FAMILY = "Pretendard"
-SEMIBOLD = "Pretendard SemiBold"
+LOCALIZED_FONTS = {
+    "ja": ("LiDARNotoSansJP.ttc", "LiDAR Noto Sans JP"),
+    "zh": ("LiDARNotoSansSC.ttc", "LiDAR Noto Sans SC"),
+}
 _scale = 1.0
 
 
@@ -17,8 +20,15 @@ def prepare_desktop():
     user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     register = ctypes.WinDLL("gdi32").AddFontResourceExW
     register.argtypes = [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
-    for face in FONT_DIR.glob("Pretendard-*.ttf"):
+    for face in (*FONT_DIR.glob("*.ttf"), *FONT_DIR.glob("*.ttc")):
         register(str(face), 0x10, None)  # Private to this process.
+
+
+def ui_font(size, weight="normal", *, locale=None):
+    family = LOCALIZED_FONTS.get(locale or get_locale(), (None, "Pretendard"))[1]
+    if weight == "semibold":
+        return family + " SemiBold", size
+    return family, size, weight
 
 
 def configure_scale(root):

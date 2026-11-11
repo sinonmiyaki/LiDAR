@@ -33,6 +33,12 @@ class HandFrame:
     curls: tuple
 
 
+@dataclass(frozen=True)
+class CameraSample:
+    trigger: float | None
+    frame: HandFrame | None
+
+
 class CameraInput:
     def __init__(self):
         self.input = vr.VRInput()
@@ -41,9 +47,24 @@ class CameraInput:
         self.sets = (vr.VRActiveActionSet_t * 1)()
         self.sets[0].ulActionSet = self.input.getActionSetHandle("/actions/camera")
         self.actions = [self.input.getActionHandle(f"/actions/camera/in/{hand}") for hand in ("left", "right")]
+        self.trigger = self.input.getActionHandle("/actions/camera/in/mode_trigger")
         self.poses = (vr.TrackedDevicePose_t * vr.k_unMaxTrackedDeviceCount)()
 
     def read(self, system):
+        try:
+            self.input.updateActionState(self.sets)
+        except vr.error_code.InputError:
+            return CameraSample(None, None)
+        trigger = None
+        try:
+            data = self.input.getAnalogActionData(self.trigger, vr.k_ulInvalidInputValueHandle)
+            if data.bActive:
+                trigger = data.x
+        except vr.error_code.InputError:
+            pass
+        return CameraSample(trigger, self.read_hands(system))
+
+    def read_hands(self, system):
         left = system.getTrackedDeviceIndexForControllerRole(vr.TrackedControllerRole_LeftHand)
         right = system.getTrackedDeviceIndexForControllerRole(vr.TrackedControllerRole_RightHand)
         if left == right or left >= len(self.poses) or right >= len(self.poses):
@@ -55,7 +76,6 @@ class CameraInput:
             return None
 
         try:
-            self.input.updateActionState(self.sets)
             if not all(self.input.getSkeletalActionData(action).bActive for action in self.actions):
                 return None
             curls = [tuple(self.input.getSkeletalSummaryData(action, vr.VRSummaryType_FromDevice).flFingerCurl)

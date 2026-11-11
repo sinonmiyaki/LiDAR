@@ -2,13 +2,15 @@
   "action_sets": [{"name": "/actions/camera", "usage": "single"}],
   "actions": [
     {"name": "/actions/camera/in/left", "type": "skeleton", "skeleton": "/skeleton/hand/left"},
-    {"name": "/actions/camera/in/right", "type": "skeleton", "skeleton": "/skeleton/hand/right"}
+    {"name": "/actions/camera/in/right", "type": "skeleton", "skeleton": "/skeleton/hand/right"},
+    {"name": "/actions/camera/in/mode_trigger", "type": "vector1", "requirement": "optional"}
   ],
   "default_bindings": [{"controller_type": "knuckles", "binding_url": "knuckles.json"}],
   "localization": [{
     "language_tag": "en_US",
     "/actions/camera": "Camera frame gesture",
     "/actions/camera/in/left": "Left hand skeleton",
-    "/actions/camera/in/right": "Right hand skeleton"
+    "/actions/camera/in/right": "Right hand skeleton",
+    "/actions/camera/in/mode_trigger": "Cancel scan"
   }]
 }

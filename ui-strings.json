@@ -99,6 +99,11 @@
     "翻訳結果",
     "翻译结果"
   ],
+  "번역 중": [
+    "Translating",
+    "翻訳中",
+    "正在翻译"
+  ],
   "번역 언어 설정": [
     "Translation language",
     "翻訳先の言語設定",
@@ -124,15 +129,15 @@
     "両手の親指と人差し指でL字を作ります。",
     "用双手的拇指和食指比出 L 形。"
   ],
-  "손 사이 창에 QR이나 텍스트를 맞춥니다.": [
-    "Center the QR code or text in the frame.",
-    "両手の間の枠にQRコードや文字を合わせます。",
-    "将二维码或文本对准双手之间的取景框。"
+  "오른손 트리거로 스캔을 취소합니다.": [
+    "Pull the right trigger to cancel the scan.",
+    "右手のトリガーでスキャンをキャンセルします。",
+    "扣动右手扳机取消扫描。"
   ],
-  "자세를 풀어 읽습니다.": [
-    "Release the gesture to scan.",
-    "ジェスチャーを解除すると読み取ります。",
-    "松开手势开始扫描。"
+  "대상을 창에 맞춘 뒤 자세를 풀어 읽습니다.": [
+    "Center the target in the frame, then release the gesture to scan.",
+    "対象を枠に合わせてジェスチャーを解除すると読み取ります。",
+    "将目标对准取景框，再松开手势开始扫描。"
   ],
   "최근 스캔": [
     "Recent scan",
@@ -143,11 +148,6 @@
     "Could not open the link in your browser",
     "PCのブラウザーでリンクを開けませんでした",
     "无法在电脑浏览器中打开链接"
-  ],
-  "인식한 원문": [
-    "Scanned text",
-    "読み取った原文",
-    "扫描原文"
   ],
   "변경": [
     "Change",
@@ -624,10 +624,20 @@
     "QRコードを検出 · キャプチャを表示中",
     "已识别二维码 · 正在显示截图"
   ],
-  "텍스트 인식 및 번역 중": [
-    "Scanning and translating text",
-    "テキストを読み取り、翻訳中",
-    "正在识别并翻译文本"
+  "스캔 취소됨": [
+    "Scan canceled",
+    "スキャンをキャンセルしました",
+    "扫描已取消"
+  ],
+  "텍스트 인식 중": [
+    "Reading text",
+    "テキストを読み取り中",
+    "正在识别文本"
+  ],
+  "손 사이 창에서 텍스트를 읽지 못했습니다": [
+    "Could not read text in the frame",
+    "両手の間の枠でテキストを読み取れませんでした",
+    "无法读取双手之间取景框内的文本"
   ],
   "손 사이 창에서 QR이나 텍스트를 읽지 못했습니다": [
     "Could not scan a QR code or text in the frame",
@@ -644,10 +654,10 @@
     "スキャンエラー · {error}",
     "扫描错误 · {error}"
   ],
-  "조준 중 · 손 사이 창에 QR이나 텍스트를 넣고 자세를 푸세요": [
-    "Aiming · Center the QR code or text and release the gesture",
-    "照準中 · QRコードや文字を枠に合わせてジェスチャーを解除してください",
-    "正在取景 · 对准二维码或文本后松开手势"
+  "조준 중 · 대상을 창에 맞춘 뒤 자세를 푸세요": [
+    "Aiming · Center the target and release the gesture",
+    "照準中 · 対象を枠に合わせてジェスチャーを解除してください",
+    "正在取景 · 对准目标后松开手势"
   ],
   "SteamVR 대시보드를 닫으면 제스처를 감지합니다": [
     "Close the SteamVR dashboard to detect gestures",
@@ -903,5 +913,330 @@
     "Romanian",
     "ルーマニア語",
     "罗马尼亚语"
+  ],
+  "원문": [
+    "Source",
+    "原文",
+    "原文"
+  ],
+  "설정 필요": [
+    "Setup required",
+    "設定が必要",
+    "需要设置"
+  ],
+  "사용 가능": [
+    "Available",
+    "利用可能",
+    "可用"
+  ],
+  "오른손 트리거를 두 번 눌러 어시스턴트를 켭니다.": [
+    "Double-press the right trigger to open the assistant.",
+    "右手のトリガーを2回押すとアシスタントが起動します。",
+    "连按两次右手扳机启动助手。"
+  ],
+  "어시스턴트 설정": [
+    "Assistant settings",
+    "アシスタント設定",
+    "助手设置"
+  ],
+  "설정으로 이동": [
+    "Go to Settings",
+    "設定へ移動",
+    "前往设置"
+  ],
+  "최근 질문": [
+    "Recent questions",
+    "最近の質問",
+    "最近的问题"
+  ],
+  "질문과 답변": [
+    "Question and answer",
+    "質問と回答",
+    "问题与回答"
+  ],
+  "아직 질문 기록이 없습니다.": [
+    "No questions yet.",
+    "質問の履歴はまだありません。",
+    "暂无提问记录。"
+  ],
+  "질문": [
+    "Question",
+    "質問",
+    "问题"
+  ],
+  "답변": [
+    "Answer",
+    "回答",
+    "回答"
+  ],
+  "열기": [
+    "Open",
+    "開く",
+    "打开"
+  ],
+  "질문 기록을 저장하지 못했습니다.": [
+    "Could not save question history.",
+    "質問の履歴を保存できませんでした。",
+    "无法保存提问记录。"
+  ],
+  "대시보드에서 AI 어시스턴트를 켜세요.": [
+    "Turn on AI Assistant from the dashboard.",
+    "ダッシュボードで AI アシスタントをオンにしてください。",
+    "请在仪表板开启 AI 助手。"
+  ],
+  "Codex 연결": [
+    "Connect Codex",
+    "Codex 接続",
+    "连接 Codex"
+  ],
+  "연결": [
+    "Connections",
+    "接続",
+    "连接"
+  ],
+  "연결됨": [
+    "Connected",
+    "接続済み",
+    "已连接"
+  ],
+  "말투": [
+    "Reply style",
+    "話し方",
+    "回复语气"
+  ],
+  "존댓말": [
+    "Polite",
+    "丁寧",
+    "礼貌"
+  ],
+  "반말": [
+    "Casual",
+    "カジュアル",
+    "随意"
+  ],
+  "마이크": [
+    "Microphone",
+    "マイク",
+    "麦克风"
+  ],
+  "마이크 입력": [
+    "Microphone input",
+    "マイク入力",
+    "麦克风输入"
+  ],
+  "Windows 기본 마이크": [
+    "Default Windows microphone",
+    "Windows の既定のマイク",
+    "Windows 默认麦克风"
+  ],
+  "마이크에 연결할 수 없습니다.": [
+    "Could not open the microphone.",
+    "マイクを開けません。",
+    "无法打开麦克风。"
+  ],
+  "선택한 마이크를 찾을 수 없습니다.": [
+    "The selected microphone could not be found.",
+    "選択したマイクが見つかりません。",
+    "找不到选定的麦克风。"
+  ],
+  "마이크 목록을 불러오지 못했습니다.": [
+    "Could not list microphones.",
+    "マイクの一覧を取得できません。",
+    "无法加载麦克风列表。"
+  ],
+  "연결된 계정에서 Luna를 사용할 수 없습니다.": [
+    "Luna is unavailable for the connected account.",
+    "接続中のアカウントでは Luna を利用できません。",
+    "已连接的账号无法使用 Luna。"
+  ],
+  "어시스턴트를 사용하려면 Codex에 연결하세요.": [
+    "Connect Codex to use the assistant.",
+    "アシスタントを使うには Codex に接続してください。",
+    "连接 Codex 以使用助手。"
+  ],
+  "설정에서 Gemini API 키를 입력하세요.": [
+    "Enter a Gemini API key in Settings.",
+    "設定で Gemini API キーを入力してください。",
+    "请在设置中输入 Gemini API 密钥。"
+  ],
+  "PC 앱에서 마이크 감도를 보정하세요.": [
+    "Calibrate your microphone in the PC app.",
+    "PC アプリでマイク感度を調整してください。",
+    "请在 PC 应用中校准麦克风灵敏度。"
+  ],
+  "Gemini 3.5 Transcribe API 키": [
+    "Gemini 3.5 Transcribe API key",
+    "Gemini 3.5 Transcribe API キー",
+    "Gemini 3.5 Transcribe API 密钥"
+  ],
+  "녹음은 Gemini로, 받아쓴 질문과 화면 캡처는 Codex로 전송합니다.": [
+    "Audio goes to Gemini. The transcript and capture go to Codex.",
+    "録音は Gemini に、文字起こしと画面キャプチャは Codex に送信します。",
+    "录音发送到 Gemini，转录文本和截图发送到 Codex。"
+  ],
+  "Luna 추론 수준": [
+    "Luna reasoning effort",
+    "Luna の推論レベル",
+    "Luna 推理等级"
+  ],
+  "마이크 감도": [
+    "Microphone sensitivity",
+    "マイク感度",
+    "麦克风灵敏度"
+  ],
+  "마이크 감도 보정": [
+    "Microphone calibration",
+    "マイク感度の調整",
+    "麦克风校准"
+  ],
+  "감도 저장": [
+    "Save sensitivity",
+    "感度を保存",
+    "保存灵敏度"
+  ],
+  "다시 보정": [
+    "Recalibrate",
+    "再調整",
+    "重新校准"
+  ],
+  "오른쪽으로 옮기면 작은 목소리도 감지합니다.": [
+    "Move right to pick up quieter speech.",
+    "右に動かすと小さな声も検出します。",
+    "向右滑动可识别更轻的声音。"
+  ],
+  "아래 예문을 평소 목소리로 읽어 주세요.": [
+    "Read the sample in your normal voice.",
+    "例文を普段の声で読んでください。",
+    "请用平常的音量朗读示例。"
+  ],
+  "예문 · 이 화면에 보이는 내용을 알려줘.": [
+    "Sample · Tell me what’s on this screen.",
+    "例文 · この画面に表示されている内容を教えて。",
+    "示例 · 告诉我这个屏幕上显示的内容。"
+  ],
+  "설정의 어시스턴트 설정에서 감도를 조절하거나 다시 보정할 수 있어요.": [
+    "Adjust or recalibrate sensitivity in Assistant settings.",
+    "アシスタント設定で感度の変更や再調整ができます。",
+    "你可以在助手设置中调整或重新校准灵敏度。"
+  ],
+  "지금 예문을 읽어 주세요.": [
+    "Read the sample now.",
+    "今、例文を読んでください。",
+    "现在请朗读示例。"
+  ],
+  "지금은 말하지 마세요.": [
+    "Stay quiet for now.",
+    "今は話さないでください。",
+    "现在请保持安静。"
+  ],
+  "측정 중": [
+    "Measuring",
+    "測定中",
+    "正在测量"
+  ],
+  "다시 시도": [
+    "Retry",
+    "再試行",
+    "重试"
+  ],
+  "이제 말하지 않고 주변 소리를 측정합니다.": [
+    "Next, stay quiet while we measure background noise.",
+    "次は静かにして、周囲の音を測定します。",
+    "接下来请保持安静，以测量环境噪声。"
+  ],
+  "주변 소리 측정": [
+    "Measure background noise",
+    "周囲の音を測定",
+    "测量环境噪声"
+  ],
+  "마이크 감도를 저장했습니다.": [
+    "Microphone sensitivity saved.",
+    "マイク感度を保存しました。",
+    "已保存麦克风灵敏度。"
+  ],
+  "VR에서 오른손 트리거를 두 번 누르면 시작할 수 있어요.": [
+    "Double-press the right trigger in VR to start.",
+    "VR で右手のトリガーを2回押すと開始できます。",
+    "在 VR 中连按两次右手扳机即可开始。"
+  ],
+  "목소리 측정": [
+    "Measure voice",
+    "声を測定",
+    "测量声音"
+  ],
+  "완료": [
+    "Done",
+    "完了",
+    "完成"
+  ],
+  "마이크 준비 중": [
+    "Starting microphone",
+    "マイクを準備中",
+    "正在准备麦克风"
+  ],
+  "듣고 있어요": [
+    "Listening",
+    "聞き取り中",
+    "正在聆听"
+  ],
+  "인식한 문장": [
+    "Recognized speech",
+    "認識した発話",
+    "识别到的语音"
+  ],
+  "답변을 준비하고 있어요": [
+    "Preparing an answer",
+    "回答を準備中",
+    "正在准备回答"
+  ],
+  "트리거를 눌러 취소할 수 있어요.": [
+    "Press the trigger to cancel.",
+    "トリガーを押すとキャンセルできます。",
+    "按下扳机即可取消。"
+  ],
+  "트리거를 두 번 눌러 닫기": [
+    "Double-press the trigger to close",
+    "トリガーを2回押して閉じる",
+    "连按两次扳机关闭"
+  ],
+  "Windows 기본 마이크에 연결할 수 없습니다.": [
+    "Could not open the default Windows microphone.",
+    "Windows の既定のマイクを開けません。",
+    "无法打开 Windows 默认麦克风。"
+  ],
+  "목소리와 주변 소리를 구분하지 못했습니다. 다시 측정해 주세요.": [
+    "Your voice was too close to the background level. Please try again.",
+    "声と周囲の音を区別できませんでした。測定し直してください。",
+    "无法区分说话声和环境噪声，请重新测量。"
+  ],
+  "목소리가 들리지 않았습니다.": [
+    "No speech detected.",
+    "声を検出できませんでした。",
+    "未检测到语音。"
+  ],
+  "Gemini API 키와 모델 사용 권한을 확인하세요.": [
+    "Check your Gemini API key and model access.",
+    "Gemini API キーとモデルへのアクセス権を確認してください。",
+    "请检查 Gemini API 密钥和模型访问权限。"
+  ],
+  "Gemini 음성 인식 사용 한도에 도달했습니다.": [
+    "Gemini transcription quota reached.",
+    "Gemini の文字起こし利用上限に達しました。",
+    "Gemini 语音转录已达到使用上限。"
+  ],
+  "Gemini 음성 인식 서버에 연결하지 못했습니다.": [
+    "Could not reach Gemini transcription.",
+    "Gemini の文字起こしに接続できませんでした。",
+    "无法连接 Gemini 语音转录服务。"
+  ],
+  "질문을 알아듣지 못했습니다. 다시 말해 주세요.": [
+    "Could not understand the question. Please speak again.",
+    "質問を聞き取れませんでした。もう一度話してください。",
+    "未能识别问题，请再说一次。"
+  ],
+  "AI 어시스턴트 요청을 처리하지 못했습니다.": [
+    "Could not complete the assistant request.",
+    "アシスタントのリクエストを処理できませんでした。",
+    "无法处理助手请求。"
   ]
 }
