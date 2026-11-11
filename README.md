@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/sinonmiyaki/LiDAR/releases/latest"><img src="https://img.shields.io/github/v/release/sinonmiyaki/LiDAR?label=Release&amp;color=6600CC" alt="최신 릴리스"></a>
   <img src="https://img.shields.io/badge/Windows-x64-151515" alt="Windows x64">
-  <img src="https://img.shields.io/badge/SteamVR-Valve%20Index-151515" alt="SteamVR · Valve Index">
+  <img src="https://img.shields.io/badge/SteamVR-VRChat-151515" alt="SteamVR VRChat">
   <a href="https://github.com/RapidAI/RapidOCR"><img src="https://img.shields.io/badge/OCR-RapidOCR-6600CC" alt="RapidOCR"></a>
 </p>
 
