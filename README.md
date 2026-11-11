@@ -98,22 +98,6 @@ SteamVR을 아직 켜지 않았다면 LiDAR는 연결을 기다립니다. SteamV
 - **이번 버전 건너뛰기**: 해당 버전의 알림을 숨깁니다.
 - **나중에**: 다음 실행 때 다시 확인합니다.
 
-## Windows 빌드
-
-빌드에는 Python 3.10 x64와 Inno Setup 6.7을 사용합니다. `updater.py`의 `VERSION`, Inno Setup의 `AppVersion`, GitHub 릴리스 태그 `vX.Y.Z`는 같은 버전으로 맞춥니다.
-
-앱 UI의 팝업은 `InAppDialog`로 LiDAR 메인 창 안에서 엽니다.
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt pyinstaller==6.20.0
-.\.venv\Scripts\python fetch_models.py
-.\.venv\Scripts\python -m PyInstaller --noconfirm LiDAR.spec
-ISCC.exe /DAppVersion=0.3.0 installer.iss
-```
-
-빌드가 끝나면 Inno Setup의 `Output` 폴더에서 설치 파일을 찾아 같은 버전의 GitHub Release에 첨부합니다.
-
 ## 사용 기술
 
 OCR에는 RapidOCR과 PP-OCR, PC 화면과 VR 결과 카드에는 Pretendard를 사용합니다. [RapidOCR](https://github.com/RapidAI/RapidOCR) · [Pretendard](https://github.com/orioncactus/pretendard) · [번들 라이선스](THIRD_PARTY.md)
