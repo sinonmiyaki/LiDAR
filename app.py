@@ -1464,6 +1464,11 @@ class ScannerWindow:
         self.selected_model_label.set(TRANSLATION_SERVICES.get(provider, "번역 모델을 정해주세요"))
         self.model_label.set(LANGUAGES[self.target] if provider else "번역 모델을 정해주세요")
 
+    def update_translation_connection(self):
+        enabled = (self.translation_config[0] == "luna" and "translation" in self.features
+                   and self.luna_effort is not None)
+        self.codex.translation_connection.configure(enabled)
+
     def toggle_feature(self, feature):
         if feature not in FEATURES:
             return
@@ -1482,6 +1487,8 @@ class ScannerWindow:
             card.animate(feature in changed)
         if feature == "qr":
             self.scan_state.set("대기 중" if feature in changed else "꺼짐")
+        elif feature == "translation":
+            self.update_translation_connection()
         elif feature == "assistant":
             self.update_assistant_settings()
 
@@ -1556,6 +1563,7 @@ class ScannerWindow:
             self.service_notice.configure(text=tr("번역 모델 설정을 저장하지 못했습니다."))
             return
         self.translation_config = self.load_translation_config(load_settings())
+        self.update_translation_connection()
         self.refresh_model_labels()
         self.render_models()
         if provider == "luna":
@@ -1791,6 +1799,7 @@ class ScannerWindow:
             self.render_luna()
         elif self.luna_signed_in:
             self.luna_effort = None
+            self.update_translation_connection()
             self.luna_fallback = None
             self.assistant_efforts = ()
             self.update_assistant_settings()
@@ -1940,6 +1949,7 @@ class ScannerWindow:
                        sync_startup=self.startup.sync,
                        options=lambda: (self.features, self.translation_config[0]),
                        text_preview=lambda source: self.events.put(("text-preview", source)),
+                       prepare_translation=self.codex.translation_connection.prepare,
                        assistant_hooks=(self.assistant_config, self.ask_assistant,
                                         lambda reason: self.events.put(("assistant-setup", reason)),
                                         lambda *result: self.events.put(("assistant-result", result))))
@@ -2015,6 +2025,7 @@ class ScannerWindow:
                         self.luna_effort = efforts[0] if efforts else None
                         self.luna_fallback = "low" if "low" in efforts else None
                         self.luna_status.set("연결됨" if self.luna_signed_in else "ChatGPT 연결 안 됨")
+                    self.update_translation_connection()
                     self.render_luna()
                     self.update_assistant_settings()
                 elif kind == "assistant-setup":
@@ -2114,6 +2125,8 @@ class ScannerWindow:
 
     def close(self):
         self.stop.set()
+        translation = self.codex.translation_connection
+        translation.configure(False)
         if self.calibration_cancel is not None:
             self.calibration_cancel.set()
         if self.tray is not None:
@@ -2123,7 +2136,7 @@ class ScannerWindow:
             self.root.after_cancel(self.refresh_job)
             self.refresh_job = None
         self.page_motion.cancel()
-        if self.worker.is_alive():
+        if self.worker.is_alive() or (translation.worker is not None and translation.worker.is_alive()):
             self.root.withdraw()
             self.root.after(30, self.close)
         else:

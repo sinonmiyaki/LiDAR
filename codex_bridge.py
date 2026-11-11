@@ -1,6 +1,7 @@
 """Use Codex App Server with a separate, local LiDAR account profile."""
 
-from contextlib import contextmanager
+from concurrent.futures import Future, TimeoutError
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from tempfile import TemporaryDirectory
@@ -16,6 +17,7 @@ from i18n import Message
 
 
 MODEL = "gpt-6-luna"
+TRANSLATION_IDLE_SECONDS = 120
 REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 INSTRUCTIONS = (
     "You are a translation engine. Translate the value of 'source' into 'target_language'. "
@@ -137,10 +139,89 @@ class AppServer:
                 yield message["method"], message.get("params", {})
 
 
+class TranslationConnection:
+    """Keep one isolated translation thread ready without sending a model turn."""
+
+    def __init__(self, bridge):
+        self.bridge = bridge
+        self.enabled = False
+        self.commands = SimpleQueue()
+        self.worker = None
+
+    def configure(self, enabled):
+        if enabled == self.enabled:
+            return
+        self.enabled = enabled
+        if enabled and self.worker is None:
+            self.worker = Thread(target=self.run, daemon=True, name="luna-translation")
+            self.worker.start()
+        self.commands.put(("prepare" if enabled else "close", None, None))
+
+    def prepare(self):
+        if self.enabled and not self.bridge.stop.is_set():
+            self.commands.put(("prepare", None, None))
+
+    def translate(self, source, target, effort):
+        result = Future()
+        self.commands.put(("translate", result, (source, target, effort)))
+        while not self.bridge.stop.is_set():
+            try:
+                return result.result(timeout=.25)
+            except TimeoutError:
+                if result.done():
+                    return result.result()
+        raise CodexError("Codex 요청을 취소했습니다.")
+
+    def run(self):
+        server = ready_thread = used_thread = None
+        expires = 0.
+        with ExitStack() as connection:
+            while not self.bridge.stop.is_set():
+                try:
+                    action, result, arguments = self.commands.get(timeout=.5)
+                except Empty:
+                    if server is None or time.monotonic() < expires:
+                        continue
+                    action, result = "close", None
+                if action == "close" or not self.enabled:
+                    connection.close()
+                    server = ready_thread = used_thread = None
+                    if result is not None:
+                        result.set_exception(CodexError("Codex 요청을 취소했습니다."))
+                    continue
+                try:
+                    if server is None or server.process.poll() is not None:
+                        connection.close()
+                        ready_thread = used_thread = None
+                        deadline = time.monotonic() + 8
+                        server = connection.enter_context(self.bridge.server(deadline))
+                        if not self.bridge.signed_in(server, deadline):
+                            raise CodexError("ChatGPT 연결이 필요합니다.")
+                    if used_thread is not None:
+                        server.call("thread/unsubscribe", {"threadId": used_thread}, deadline=time.monotonic() + .8)
+                        used_thread = None
+                    if ready_thread is None:
+                        ready_thread = self.bridge.start_thread(server, INSTRUCTIONS, time.monotonic() + 8)
+                    if result is not None:
+                        used_thread, ready_thread = ready_thread, None
+                        source, target, effort = arguments
+                        output = self.bridge.run_turn(server, used_thread, source, target, effort, "translation",
+                                                      time.monotonic() + 15)
+                        result.set_result(output)
+                        self.prepare()
+                    expires = time.monotonic() + TRANSLATION_IDLE_SECONDS
+                except (CodexError, OSError, ValueError, KeyError, TypeError) as error:
+                    connection.close()
+                    server = ready_thread = used_thread = None
+                    if result is not None:
+                        result.set_exception(error)
+
+
 class CodexBridge:
     def __init__(self, stop, profile=None):
         self.stop = stop
         self.profile = profile or Path(os.environ["LOCALAPPDATA"]) / "LiDAR" / "Codex"
+        self.translation_connection = TranslationConnection(self)
 
     @contextmanager
     def server(self, deadline=None, cancel=None):
@@ -236,6 +317,8 @@ class CodexBridge:
         return False, ()
 
     def translate(self, source, target_language, effort):
+        if self.translation_connection.enabled:
+            return self.translation_connection.translate(source, target_language, effort)
         return self.run_text(source, target_language, effort, INSTRUCTIONS, "translation")
 
     def ask(self, question, capture, target_language, effort, cancel, tone="polite"):
@@ -247,43 +330,51 @@ class CodexBridge:
                                  image=path, cancel=cancel)
 
     def run_text(self, source, target_language, effort, instructions, field, *, image=None, cancel=None):
-        schema = {
-            "type": "object", "properties": {field: {"type": "string"}},
-            "required": [field], "additionalProperties": False,
-        }
         deadline = time.monotonic() + (90 if image is not None else 15)
         with self.server(deadline, cancel) as server:
             if not self.signed_in(server, deadline, cancel):
                 raise CodexError("ChatGPT 연결이 필요합니다.")
-            thread = server.call("thread/start", {
-                "model": MODEL, "ephemeral": True, "environments": [],
-                "approvalPolicy": "never", "sandbox": "read-only",
-                "allowProviderModelFallback": False,
-                "developerInstructions": instructions,
-            }, deadline=deadline, cancel=cancel)
-            if thread.get("instructionSources"):
-                raise CodexError("번역용 Codex 환경을 분리하지 못했습니다.")
-            thread_id = thread["thread"]["id"]
-            source_key = "question" if image is not None else "source"
-            payload = json.dumps({"target_language": target_language, source_key: source}, ensure_ascii=False)
-            inputs = [{"type": "text", "text": payload, "text_elements": []}]
-            if image is not None:
-                inputs.append({"type": "localImage", "path": str(image)})
-            turn = server.call("turn/start", {
-                "threadId": thread_id, "model": MODEL, "effort": effort,
-                "input": inputs,
-                "outputSchema": schema,
-            }, deadline=deadline, cancel=cancel)
-            turn_id = turn["turn"]["id"]
-            try:
-                return self.read_output(server, deadline, cancel, thread_id, turn_id, effort, field)
-            finally:
-                if cancel is not None and cancel.is_set() and not self.stop.is_set():
-                    try:
-                        server.call("turn/interrupt", {"threadId": thread_id, "turnId": turn_id},
-                                    deadline=time.monotonic() + .5)
-                    except CodexError:
-                        pass
+            thread_id = self.start_thread(server, instructions, deadline, cancel)
+            return self.run_turn(server, thread_id, source, target_language, effort, field, deadline,
+                                 image=image, cancel=cancel)
+
+    @staticmethod
+    def start_thread(server, instructions, deadline, cancel=None):
+        thread = server.call("thread/start", {
+            "model": MODEL, "ephemeral": True, "environments": [],
+            "approvalPolicy": "never", "sandbox": "read-only",
+            "allowProviderModelFallback": False,
+            "developerInstructions": instructions,
+        }, deadline=deadline, cancel=cancel)
+        if thread.get("instructionSources"):
+            raise CodexError("번역용 Codex 환경을 분리하지 못했습니다.")
+        return thread["thread"]["id"]
+
+    def run_turn(self, server, thread_id, source, target_language, effort, field, deadline, *, image=None, cancel=None):
+        schema = {
+            "type": "object", "properties": {field: {"type": "string"}},
+            "required": [field], "additionalProperties": False,
+        }
+        source_key = "question" if image is not None else "source"
+        payload = json.dumps({"target_language": target_language, source_key: source}, ensure_ascii=False)
+        inputs = [{"type": "text", "text": payload, "text_elements": []}]
+        if image is not None:
+            inputs.append({"type": "localImage", "path": str(image)})
+        turn = server.call("turn/start", {
+            "threadId": thread_id, "model": MODEL, "effort": effort,
+            "input": inputs,
+            "outputSchema": schema,
+        }, deadline=deadline, cancel=cancel)
+        turn_id = turn["turn"]["id"]
+        try:
+            return self.read_output(server, deadline, cancel, thread_id, turn_id, effort, field)
+        finally:
+            if cancel is not None and cancel.is_set() and not self.stop.is_set():
+                try:
+                    server.call("turn/interrupt", {"threadId": thread_id, "turnId": turn_id},
+                                deadline=time.monotonic() + .5)
+                except CodexError:
+                    pass
 
     @staticmethod
     def read_output(server, deadline, cancel, thread_id, turn_id, effort, field):

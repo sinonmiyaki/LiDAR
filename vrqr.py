@@ -415,7 +415,7 @@ def default_options():
 def run_loop(system, api, handle, result, mirror, stop, report, camera, publish, executor,
              target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None,
              options=default_options, assist=None, text_preview=lambda _: None, spinner=None,
-             assistant=None, assistant_hud=None):
+             assistant=None, assistant_hud=None, prepare_translation=lambda: None):
     event = vr.VREvent_t()
     gesture = Gesture()
     miss_until = 0.0
@@ -627,6 +627,8 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
 
         if action == "aim":
             miss_until = 0.0
+            if model == "luna" and "translation" in enabled and not (assistant is not None and assistant.enabled):
+                prepare_translation()
         elif action == "release":
             # Keep the last drawn world-space square and read immediately,
             # while the QR is still in view. Confirm release before acting.
@@ -713,7 +715,8 @@ def run_loop(system, api, handle, result, mirror, stop, report, camera, publish,
 
 def run_session(stop, report, publish=lambda *_: None, probe=False, connection=lambda _: None,
                 target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None, sync_startup=lambda: None,
-                options=default_options, assist=None, text_preview=lambda _: None, assistant_hooks=None):
+                options=default_options, assist=None, text_preview=lambda _: None, assistant_hooks=None,
+                prepare_translation=lambda: None):
     if not vr.isHmdPresent():
         raise RuntimeError("헤드셋을 연결하고 SteamVR을 실행하세요.")
 
@@ -751,7 +754,7 @@ def run_session(stop, report, publish=lambda *_: None, probe=False, connection=l
             try:
                 run_loop(system, api, handle, result, mirror, stop, report, camera, publish, executor,
                          target_language, cloud_translate, sync_startup, options, assist, text_preview, spinner,
-                         assistant, assistant_hud)
+                         assistant, assistant_hud, prepare_translation=prepare_translation)
             finally:
                 if not stop.is_set():
                     connection(False)
@@ -773,7 +776,7 @@ def steamvr_ready(sync_startup=lambda: None):
 
 def watch_sessions(stop, report, publish, connection, target_language=lambda: DEFAULT_LANGUAGE, cloud_translate=None,
                    sync_startup=lambda: None, options=default_options, assist=None, text_preview=lambda _: None,
-                   assistant_hooks=None):
+                   assistant_hooks=None, prepare_translation=lambda: None):
     connected = None
 
     def update(value):
@@ -787,7 +790,8 @@ def watch_sessions(stop, report, publish, connection, target_language=lambda: DE
             if steamvr_ready(sync_startup) and not stop.is_set():
                 run_session(stop, report, publish, connection=update, target_language=target_language,
                             cloud_translate=cloud_translate, sync_startup=sync_startup, options=options,
-                            assist=assist, text_preview=text_preview, assistant_hooks=assistant_hooks)
+                            assist=assist, text_preview=text_preview, assistant_hooks=assistant_hooks,
+                            prepare_translation=prepare_translation)
         except (vr.error_code.OpenVRError, OSError, RuntimeError):
             # SteamVR and its overlays can disappear during a headset or runtime restart.
             pass
